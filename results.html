@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Federated AML on UPI data</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f3f2ee; --card:#fcfcfb; --line:#dcdad1; --text:#0b0b0b; --text2:#52514e; --muted:#898781;
+  --blue:#2a78d6; --orange:#eb6834; --aqua:#1baf7a; --red:#e34948; --amber:#eda100; --good:#006300;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --bg:#101010; --card:#1a1a19; --line:#34332f; --text:#f0efec; --text2:#c3c2b7; --muted:#898781;
+    --blue:#3987e5; --orange:#d95926; --aqua:#199e70; --red:#e66767; --amber:#c98500; --good:#0ca30c;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#101010; --card:#1a1a19; --line:#34332f; --text:#f0efec; --text2:#c3c2b7; --muted:#898781;
+  --blue:#3987e5; --orange:#d95926; --aqua:#199e70; --red:#e66767; --amber:#c98500; --good:#0ca30c;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center;background:var(--bg)}
+.slide{position:absolute;inset:0;opacity:0;pointer-events:none;transform:translateX(60px);transition:opacity .55s ease,transform .55s ease}
+.slide.active{opacity:1;pointer-events:auto;transform:none}
+.slide.past{transform:translateX(-60px)}
+.slide svg{width:1280px;height:720px;display:block}
+text{font-family:inherit;fill:var(--text)}
+.t2{fill:var(--text2)} .tm{fill:var(--muted)}
+/* reveal / draw / grow animations (all triggered by .slide.active) */
+.r{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease;transition-delay:var(--d,0ms)}
+.active .r{opacity:1;transform:none}
+.rs{opacity:0;transform:scale(.6);transform-box:fill-box;transform-origin:center;transition:opacity .5s ease,transform .5s cubic-bezier(.2,1.4,.4,1);transition-delay:var(--d,0ms)}
+.active .rs{opacity:1;transform:none}
+.draw{stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset 1.5s ease;transition-delay:var(--d,0ms)}
+.active .draw{stroke-dashoffset:0}
+.growx{transform-box:fill-box;transform-origin:left center;transform:scaleX(0);transition:transform .9s cubic-bezier(.2,.8,.2,1);transition-delay:var(--d,0ms)}
+.growy{transform-box:fill-box;transform-origin:center bottom;transform:scaleY(0);transition:transform .9s cubic-bezier(.2,.8,.2,1);transition-delay:var(--d,0ms)}
+.active .growx{transform:scaleX(1)} .active .growy{transform:scaleY(1)}
+.pulse{animation:pulse 1.8s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.75}}
+.blink{animation:blink 2.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
+.pill{cursor:pointer}
+.pill rect{transition:fill .2s}
+.pill:hover rect{fill:var(--line)}
+/* chrome */
+#progress{position:fixed;left:0;top:0;height:4px;width:0;background:var(--blue);transition:width .5s ease;z-index:5}
+#dots{position:fixed;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:9px;z-index:5}
+#dots button{width:10px;height:10px;padding:0;border-radius:50%;border:0;background:var(--line);cursor:pointer;transition:background .3s,transform .3s}
+#dots button.on{background:var(--blue);transform:scale(1.4)}
+#nav{position:fixed;bottom:6px;right:14px;display:flex;gap:8px;z-index:5}
+#nav button{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px;cursor:pointer}
+#count{position:fixed;bottom:16px;left:16px;font-size:13px;color:var(--muted);z-index:5}
+#tip{position:fixed;display:none;z-index:9;pointer-events:none;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;line-height:1.45;box-shadow:0 4px 18px rgba(0,0,0,.18);max-width:300px}
+.notrans .slide,.notrans .r,.notrans .rs,.notrans .draw,.notrans .growx,.notrans .growy{transition:none!important}
+@media (prefers-reduced-motion: reduce){
+  .slide,.r,.rs,.draw,.growx,.growy{transition:none!important} .pulse,.blink{animation:none!important}
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="stage"></div>
+<div id="dots"></div>
+<div id="count"></div>
+<div id="nav"><button id="prev" aria-label="Previous slide">&#8592;</button><button id="next" aria-label="Next slide">&#8594;</button></div>
+<div id="tip"></div>
+<script>
+const D = {"curves": {"central": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.993421052631579, 0.9884393063583815, 0.9884393063583815, 0.9884393063583815, 0.9786096256684492, 0.9786096256684492, 0.9746192893401016, 0.9711538461538461, 0.9699570815450643, 0.9699570815450643, 0.9699570815450643, 0.9699570815450643, 0.9573643410852714, 0.9573643410852714, 0.9573643410852714, 0.940959409594096, 0.9357142857142857, 0.9152542372881356, 0.9147540983606557, 0.9137380191693291, 0.9119496855345912, 0.9009009009009009, 0.8892128279883382, 0.8813559322033898, 0.8787878787878788, 0.8696808510638298, 0.8567774936061381, 0.8419753086419753, 0.8207547169811321, 0.8018018018018018, 0.778969957081545, 0.7613168724279835, 0.7306201550387597, 0.6778169014084507, 0.5384615384615384, 0.4434589800443459, 0.40722166499498497, 0.39040451552210725, 0.3892988929889299, 0.34516129032258064, 0.3414442700156986, 0.3377679231337768, 0.3377679231337768, 0.3377679231337768, 0.32424877707896577, 0.31827376938637897, 0.3140983606557377, 0.3016759776536313, 0.28447778418926717, 0.26462836056932, 0.2601126472094214, 0.2534448818897638, 0.24553151458137348, 0.23576512455516013, 0.22658227848101264, 0.22064777327935223, 0.21684376229830776, 0.2092065868263473, 0.1952397378406347, 0.18471953578336556, 0.17829695665539502, 0.17314487632508835, 0.16454646017699115, 0.15872598052118977, 0.14795918367346939, 0.13317504856464493, 0.12376041253470844, 0.11316355810616929, 0.08125318390219052, 0.058292726944594836, 0.05362568777202924, 0.04244645957939417, 0.036654393581359565, 0.03348689750829742, 0.021047433879579053, 0.018390988682468502, 0.014581412888628175, 0.011346054667354307, 0.010311820159535896, 0.008717612491197397, 0.006861112162622553], "local": [0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.7807486631016043, 0.7688442211055276, 0.6939655172413793, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6473829201101928, 0.6177215189873417, 0.6102941176470589, 0.5695067264573991, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.49045521292217326, 0.4684065934065934, 0.4527363184079602, 0.4527363184079602, 0.4527363184079602, 0.4323699421965318, 0.4131147540983607, 0.40227507755946224, 0.4014084507042254, 0.4014084507042254, 0.39539347408829173, 0.38440111420612816, 0.3679163034001744, 0.3596638655462185, 0.3455123113582208, 0.33133881824981304, 0.3225806451612903, 0.3100407055630936, 0.29922779922779924, 0.29507174048658763, 0.284272997032641, 0.2698500832870627, 0.2609846479618846, 0.24863523573200993, 0.23851921274601687, 0.22498907820008737, 0.19499439671273813, 0.18466898954703834, 0.17947860962566844, 0.17123072080579163, 0.16089613034623218, 0.14779625230931645, 0.1328326683877024, 0.12609841827768015, 0.1235356762513312, 0.11830985915492957, 0.10857664233576643, 0.09885057471264368, 0.09378843788437885, 0.08817663817663818, 0.07982602021235768, 0.06598347798807905, 0.05658034764100745, 0.043023643023643025, 0.035624795729382285, 0.029830508474576273, 0.02599984407889608, 0.020128824476650563, 0.015724067968551865, 0.013373706787787031, 0.008136734550725994, 0.007100496227861379, 0.005782368249837346, 0.005444797488416535, 0.00379979035639413], "fed": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9801980198019802, 0.9764150943396226, 0.972, 0.972, 0.972, 0.972, 0.972, 0.9689922480620154, 0.9625468164794008, 0.942652329749104, 0.9340277777777778, 0.9183006535947712, 0.8955696202531646, 0.8765060240963856, 0.847887323943662, 0.8333333333333334, 0.8151041666666666, 0.8055555555555556, 0.7622377622377622, 0.73568281938326, 0.6861167002012073, 0.5908319185059423, 0.5144092219020173, 0.5013623978201635, 0.5, 0.46600741656365885, 0.4235423542354235, 0.41047120418848165, 0.3885102239532619, 0.34935622317596565, 0.32961783439490444, 0.3146487294469357, 0.30719885958660015, 0.30655391120507397, 0.2981157469717362, 0.28526249209361165, 0.27563329312424606, 0.270081490104773, 0.2529474812433012, 0.24741735537190082, 0.23365384615384616, 0.2227745142340714, 0.20971117622436167, 0.1936834094368341, 0.1799163179916318, 0.16958495460440987, 0.1571767497034401, 0.14537087168381158, 0.13485374318294496, 0.12064812787387783, 0.10922235248143806, 0.10530232558139535, 0.09667622743377763, 0.09203427483338622, 0.08230683090705487, 0.07350216182828907, 0.06810725195157823, 0.06382978723404255, 0.05812529439472445, 0.05317879665928072, 0.05257457090484919, 0.041959881617888856, 0.034667811527315656, 0.029484806068542015, 0.02637151875973948, 0.023083036732437195, 0.020218661075333235, 0.014633623001823838, 0.013283720212847999, 0.011937636142222527, 0.01020704053818941, 0.00875615763546798, 0.007467887045608196, 0.005810319126769142]}, "rows": [{"name": "Central tree, pooled history (benchmark)", "family": "central", "runs": 3, "f1": [55.90625326689648, 4.318149310972689], "retro": [56.658506289006, 4.934075775537068], "p": 60.32702730701868, "r": 53.333333333333336, "ap": 0.6034455517398106, "caught": 386.6666666666667, "fa": 282.6666666666667, "bank": [58.15696736928731, 52.13158703257714, 56.863063801586435]}, {"name": "Central tree, local-view features", "family": "central", "runs": 3, "f1": [53.189950699465065, 0.5805765805375479], "retro": [55.982675632746776, 1.2902540586349545], "p": 55.541619454618676, "r": 51.03448275862069, "ap": 0.5969773309985261, "caught": 370.0, "fa": 296.3333333333333, "bank": [54.41685715378022, 52.11475615887381, 52.36823377999849]}, {"name": "Local-only, each bank alone", "family": "local", "runs": 3, "f1": [49.929577788106066, 0.5369906049165005], "retro": [51.389524101210405, 0.9530887827530279], "p": 49.867183678802895, "r": 50.206896551724135, "ap": 0.4455063437708515, "caught": 364.0, "fa": 369.6666666666667, "bank": [58.689033147584304, 38.7358066435666, 51.72710568899694]}, {"name": "One-shot ensemble of local trees", "family": "local", "runs": 3, "f1": [46.75353201947177, 3.900720331283964], "retro": [50.11366896057465, 3.1192044769397604], "p": 48.39447633851694, "r": 45.37931034482759, "ap": 0.4584409876990306, "caught": 329.0, "fa": 352.0, "bank": [50.18550406039478, 42.25921947726459, 47.085723375487156]}, {"name": "Central histogram-GBDT, pooled history", "family": "central", "runs": 1, "f1": [61.42625607779579, 0.0], "retro": [62.41021548284118, 0.0], "p": 74.4597249508841, "r": 52.275862068965516, "ap": 0.5887707733535295, "caught": 379.0, "fa": 130.0, "bank": [64.62715105162523, 58.981233243967836, 59.17159763313609]}, {"name": "Central histogram-GBDT, local features", "family": "central", "runs": 1, "f1": [54.075235109717866, 0.0], "retro": [57.77777777777778, 0.0], "p": 62.613430127041745, "r": 47.58620689655172, "ap": 0.5643536267704324, "caught": 345.0, "fa": 206.0, "bank": [58.84476534296029, 55.46666666666667, 44.95677233429395]}, {"name": "Federated histogram-GBDT (3 banks)", "family": "fed", "runs": 1, "f1": [56.16093880972339, 0.0], "retro": [58.292282430213454, 0.0], "p": 71.58119658119658, "r": 46.206896551724135, "ap": 0.5506303930756498, "caught": 335.0, "fa": 133.0, "bank": [63.01369863013698, 53.481894150417816, 48.29721362229102]}], "steps": [{"label": "Central tree, pooled history", "v": 0.6034455517398106}, {"label": "Same, own histogram-GBDT", "v": 0.5887707733535295}, {"label": "Banks see only their own history", "v": 0.5643536267704324}, {"label": "Banks train together by sharing histograms", "v": 0.5506303930756498}], "facts": {"ap_gain": 0.23596532524095615, "f1_gain": 0.12480299849644871, "ap_vs_central": -0.08752265802919257, "recovered": 0.6655981795569027, "f1_fed": 56.16093880972339, "f1_bench": 55.90625326689648, "f1_bench_sd": 4.318149310972689, "ap_local": 0.4455063437708515, "ap_fed": 0.5506303930756498, "ap_bench": 0.6034455517398106, "ap_same_edges": 0.5634559287857293, "n_rows": 963502, "n_laundering": 3032, "test_laundering": 725, "owned": [480556, 288580, 194366], "owned_rate": [0.0025595352050541455, 0.0030736710790768593, 0.004707613471491927]}};
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+const F = D.facts, ROWS = Object.fromEntries(D.rows.map(r => [r.name, r]));
+const FAM = {central: "var(--blue)", local: "var(--orange)", fed: "var(--aqua)"};
+const BANKS = ["A", "B", "C"];
+
+/* ---------- tiny SVG toolkit ---------- */
+function S(tag, a = {}, parent) { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); if (parent) parent.appendChild(e); return e; }
+function T(parent, x, y, str, o = {}) {
+  const e = S("text", {x, y, "font-size": o.size || 22, "font-weight": o.weight || 500, "text-anchor": o.anchor || "start"}, parent);
+  if (o.cls) e.setAttribute("class", o.cls); if (o.fill) e.style.fill = o.fill; e.textContent = str; return e;
+}
+function R(el, d = 0) { el.classList.add("r"); el.style.setProperty("--d", d + "ms"); return el; }
+function RS(el, d = 0) { el.classList.add("rs"); el.style.setProperty("--d", d + "ms"); return el; }
+function G(parent, cls, d) { const g = S("g", {}, parent); if (cls) { g.classList.add(cls); g.style.setProperty("--d", (d || 0) + "ms"); } return g; }
+function rng(seed) { let s = seed; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+function barPath(x, y, w, h, r, dir) { // rounded data-end, square baseline. dir: 'r' (grows right) or 'u' (grows up)
+  r = Math.min(r, w / 2, h / 2);
+  if (dir === "r") return `M${x} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + h - r}Q${x + w} ${y + h} ${x + w - r} ${y + h}H${x}Z`;
+  return `M${x} ${y + h}V${y + r}Q${x} ${y} ${x + r} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + h}Z`;
+}
+const fmtN = (v, d = 0) => v.toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+function tip(el, html) {
+  el.addEventListener("mousemove", (e) => { const t = $("tip"); t.innerHTML = html; t.style.display = "block"; t.style.left = Math.min(e.clientX + 14, innerWidth - 320) + "px"; t.style.top = (e.clientY + 14) + "px"; });
+  el.addEventListener("mouseleave", () => { $("tip").style.display = "none"; });
+}
+function defs(svg) {
+  const d = S("defs", {}, svg);
+  const m = S("marker", {id: "ah", markerUnits: "userSpaceOnUse", markerWidth: 13, markerHeight: 10, refX: 12, refY: 5, orient: "auto"}, d); S("path", {d: "M0 0L13 5L0 10z", fill: "#898781"}, m);
+}
+function arrow(parent, x1, y1, x2, y2, o = {}) {
+  const l = S("line", {x1, y1, x2, y2, stroke: o.color || "var(--muted)", "stroke-width": o.w || 3, "marker-end": "url(#ah)", "stroke-linecap": "round"}, parent);
+  if (o.dash) l.setAttribute("stroke-dasharray", o.dash); return l;
+}
+function cylinder(parent, x, y, w, h, color, label) { // database icon centred at (x, y)
+  const g = S("g", {}, parent), rx = w / 2, ry = h * 0.16;
+  S("path", {d: `M${x - rx} ${y - h / 2 + ry}V${y + h / 2 - ry}A${rx} ${ry} 0 0 0 ${x + rx} ${y + h / 2 - ry}V${y - h / 2 + ry}`, fill: "var(--card)", stroke: color, "stroke-width": 3}, g);
+  S("ellipse", {cx: x, cy: y - h / 2 + ry, rx, ry, fill: "var(--card)", stroke: color, "stroke-width": 3}, g);
+  S("path", {d: `M${x - rx} ${y} A${rx} ${ry} 0 0 0 ${x + rx} ${y}`, fill: "none", stroke: color, "stroke-width": 2, opacity: .5}, g);
+  if (label) T(g, x, y + h / 2 + 30, label, {size: 20, anchor: "middle", weight: 600});
+  return g;
+}
+function lock(parent, x, y, s = 1, color = "var(--text2)") {
+  const g = S("g", {transform: `translate(${x} ${y}) scale(${s})`}, parent);
+  S("rect", {x: -11, y: -2, width: 22, height: 17, rx: 3, fill: color}, g); S("path", {d: "M-7 -2V-8a7 7 0 0 1 14 0V-2", fill: "none", stroke: color, "stroke-width": 3}, g); return g;
+}
+function miniHist(parent, x, y, color = "var(--blue)", s = 1) { // little histogram icon, bottom-left at (x, y)
+  const g = S("g", {}, parent); [14, 26, 38, 22, 10].forEach((h, i) => S("rect", {x: x + i * 9 * s, y: y - h * s, width: 7 * s, height: h * s, rx: 1.5, fill: color}, g)); return g;
+}
+function rowsIcon(parent, x, y, color = "var(--muted)") { // few table rows
+  const g = S("g", {}, parent); for (let i = 0; i < 4; i++) S("rect", {x, y: y + i * 8, width: 34, height: 5, rx: 2, fill: color}, g); return g;
+}
+function title(svg, kicker, head) {
+  R(T(svg, 64, 56, kicker.toUpperCase(), {size: 15, weight: 700, cls: "tm"}), 0).setAttribute("letter-spacing", "2");
+  R(T(svg, 64, 104, head, {size: 40, weight: 700}), 80);
+}
+
+/* ---------- deck plumbing ---------- */
+const slides = [];
+function newSlide(name, build, enter) {
+  const sec = document.createElement("section"); sec.className = "slide"; sec.dataset.name = name;
+  const svg = S("svg", {viewBox: "0 0 1280 720", role: "img", "aria-label": name}); sec.appendChild(svg); defs(svg);
+  $("stage").appendChild(sec); build(svg, sec); slides.push({sec, svg, enter, name});
+}
+function countUp(root) {
+  root.querySelectorAll("[data-count]").forEach((el) => {
+    const to = parseFloat(el.dataset.count), dec = +(el.dataset.dec || 0), pre = el.dataset.pre || "", suf = el.dataset.suf || "", t0 = performance.now(), dur = 1300;
+    const step = (t) => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = pre + fmtN(to * e, dec) + suf; if (k < 1) requestAnimationFrame(step); };
+    el.textContent = pre + fmtN(0, dec) + suf; requestAnimationFrame(step);
+  });
+}
+function fit() { const k = Math.min(innerWidth / 1280, (innerHeight - 30) / 720); $("stage").style.transform = `translate(-50%,-50%) scale(${k})`; }
+let cur = -1;
+function go(i) {
+  i = Math.max(0, Math.min(slides.length - 1, i)); if (i === cur) return;
+  slides.forEach((s, k) => { s.sec.classList.toggle("active", k === i); s.sec.classList.toggle("past", k < i); });
+  cur = i; $("progress").style.width = ((i + 1) / slides.length * 100) + "%";
+  document.querySelectorAll("#dots button").forEach((b, k) => b.classList.toggle("on", k === i));
+  $("count").textContent = `${i + 1} / ${slides.length}`; history.replaceState(null, "", "#" + (i + 1));
+  const s = slides[i]; if (s.enter) s.enter(); countUp(s.sec);
+  /* safety net: if the browser is not advancing transitions (throttled/background tab), jump straight to the final state */
+  setTimeout(() => { if (cur === i && parseFloat(getComputedStyle(s.sec).opacity) < 0.05) document.body.classList.add("notrans"); }, 1800);
+}
+
+/* =====================================================================================================
+   SLIDES
+   ===================================================================================================== */
+
+/* 1 - title: three banks, flowing transactions, one laundering ring */
+newSlide("Title", (svg) => {
+  const rnd = rng(7), banks = [[300, 520, 150], [650, 560, 120], [980, 500, 105]], dots = [];
+  banks.forEach(([cx, cy, r], bi) => {
+    RS(S("circle", {cx, cy, r, fill: "var(--card)", stroke: "var(--line)", "stroke-width": 2}, svg), 100 + bi * 150);
+    for (let i = 0; i < 26; i++) { const a = rnd() * 6.283, d = Math.sqrt(rnd()) * (r - 14), x = cx + Math.cos(a) * d, y = cy + Math.sin(a) * d; dots.push([x, y, bi]); S("circle", {cx: x, cy: y, r: 3.2, fill: "var(--muted)", opacity: .7}, svg); }
+    R(T(svg, cx, cy + r + 34, "Bank " + BANKS[bi], {size: 22, anchor: "middle", weight: 600, cls: "t2"}), 600);
+  });
+  const g = G(svg, "r", 900);
+  for (let i = 0; i < 26; i++) {
+    const a = dots[Math.floor(rnd() * dots.length)], b = dots[Math.floor(rnd() * dots.length)], dur = 3 + rnd() * 4;
+    const c = S("circle", {r: 3.8, fill: "var(--blue)"}, g);
+    S("animateMotion", {dur: dur + "s", repeatCount: "indefinite", begin: (-rnd() * dur) + "s", path: `M${a[0]} ${a[1]}L${b[0]} ${b[1]}`}, c);
+  }
+  const ring = [[250, 470], [380, 430], [620, 520], [730, 600], [940, 470]], rg = G(svg, "r", 1500);
+  S("path", {d: "M" + ring.map(p => p.join(" ")).join("L") + "Z", fill: "none", stroke: "var(--red)", "stroke-width": 3, "stroke-dasharray": "8 8"}, rg).innerHTML = '<animate attributeName="stroke-dashoffset" from="0" to="-32" dur="1.6s" repeatCount="indefinite"/>';
+  ring.forEach(([x, y]) => { const c = S("circle", {cx: x, cy: y, r: 8, fill: "var(--red)", class: "pulse"}, rg); c.style.stroke = "var(--card)"; c.style.strokeWidth = 2; });
+  R(T(svg, 64, 108, "Catching money laundering", {size: 58, weight: 800}), 200);
+  R(T(svg, 64, 176, "without pooling the data", {size: 58, weight: 800, fill: "var(--blue)"}), 380);
+  R(T(svg, 64, 228, "Federated learning on synthetic UPI transactions", {size: 24, cls: "t2"}), 560);
+  S("circle", {cx: 1010, cy: 660, r: 7, fill: "var(--red)"}, svg); T(svg, 1026, 667, "laundering ring", {size: 18, cls: "t2"});
+});
+
+/* 2 - the data: three banks sized by the rows each scores */
+newSlide("The banks", (svg) => {
+  title(svg, "The data", "Three banks, one problem");
+  const cols = ["var(--blue)", "var(--orange)", "var(--aqua)"], cx = [250, 610, 940], sc = 150 / Math.sqrt(F.owned[0]);
+  const pos = cx.map((x, i) => [x, 360, Math.sqrt(F.owned[i]) * sc]);
+  // cross-bank links
+  [[0, 1], [1, 2], [0, 2]].forEach(([a, b], k) => {
+    const [x1, y1, r1] = pos[a], [x2, y2, r2] = pos[b];
+    const p = S("path", {d: `M${x1 + r1 * .7} ${y1 - r1 * .7}Q${(x1 + x2) / 2} ${y1 - 190 - k * 14} ${x2 - r2 * .7} ${y2 - r2 * .7}`, fill: "none", stroke: "var(--red)", "stroke-width": 3, "stroke-dasharray": "2 9", "stroke-linecap": "round", opacity: .8}, svg);
+    if (k === 2) p.setAttribute("d", `M${x1} ${y1 - r1}Q${(x1 + x2) / 2} ${y1 - 330} ${x2} ${y2 - r2}`); R(p, 900 + k * 200);
+  });
+  pos.forEach(([x, y, r], i) => {
+    RS(S("circle", {cx: x, cy: y, r, fill: cols[i], "fill-opacity": .16}, svg), 200 + i * 160);
+    RS(S("circle", {cx: x, cy: y, r, fill: "none", stroke: cols[i], "stroke-width": 4}, svg), 200 + i * 160);
+    R(T(svg, x, y - 6, "Bank " + BANKS[i], {size: 26, weight: 700, anchor: "middle"}), 500 + i * 160);
+    const n = T(svg, x, y + 30, "", {size: 22, anchor: "middle", cls: "t2"}); n.dataset.count = F.owned[i]; R(n, 500 + i * 160);
+    // laundering rate bar under the circle
+    const by = y + r + 26, w = F.owned_rate[i] / 0.005 * 150;
+    R(S("rect", {x: x - 75, y: by, width: 150, height: 10, rx: 5, fill: "var(--line)"}, svg), 800 + i * 100);
+    const b = S("rect", {x: x - 75, y: by, width: w, height: 10, rx: 5, fill: "var(--red)"}, svg); b.classList.add("growx"); b.style.setProperty("--d", 1000 + i * 100 + "ms");
+    R(T(svg, x, by + 36, (F.owned_rate[i] * 100).toFixed(2) + "% laundering", {size: 18, anchor: "middle", cls: "t2"}), 900 + i * 100);
+  });
+  [[F.n_rows, "transactions", 0, ""], [2, "days", 0, ""], [F.n_laundering / F.n_rows * 100, "% laundering", 3, ""], [66, "% cross banks", 0, "red"]].forEach(([v, l, dec, hot], i) => {
+    const x = 200 + i * 290, g = G(svg, "r", 1100 + i * 120);
+    S("rect", {x: x - 135, y: 628, width: 270, height: 56, rx: 12, fill: "var(--card)", stroke: hot ? "var(--red)" : "var(--line)", "stroke-width": hot ? 2 : 1}, g);
+    const n = T(g, x - 4, 667, "", {size: 28, weight: 800, anchor: "end"}); n.dataset.count = v; n.dataset.dec = dec;
+    T(g, x + 4, 667, l, {size: 17, cls: "t2"});
+  });
+});
+
+/* 3 - how laundering looks: five patterns as mini graphs */
+newSlide("Patterns", (svg) => {
+  title(svg, "The data", "How laundering looks");
+  const P = [["Fan-in", 1845], ["Fan-out", 296], ["Layering", 257], ["Round-trip", 140], ["Structuring", 464]];
+  const node = (g, x, y, hot, r = 11) => S("circle", {cx: x, cy: y, r, fill: hot ? "var(--red)" : "var(--card)", stroke: hot ? "var(--card)" : "var(--muted)", "stroke-width": hot ? 2 : 3}, g);
+  const line = (g, x1, y1, x2, y2, d, hot) => {
+    const l = S("path", {d: `M${x1} ${y1}L${x2} ${y2}`, fill: "none", stroke: hot ? "var(--red)" : "var(--muted)", "stroke-width": 3, pathLength: 1, class: "draw"}, g); l.style.setProperty("--d", d + "ms");
+    const a = Math.atan2(y2 - y1, x2 - x1), hd = S("path", {d: `M${x2} ${y2}L${x2 - 12 * Math.cos(a - .45)} ${y2 - 12 * Math.sin(a - .45)}L${x2 - 12 * Math.cos(a + .45)} ${y2 - 12 * Math.sin(a + .45)}Z`, fill: hot ? "var(--red)" : "var(--muted)"}, g); R(hd, d + 1300);
+  };
+  P.forEach(([name, n], i) => {
+    const x0 = 64 + i * 232, g = G(svg, "", 0), card = S("rect", {x: x0, y: 160, width: 212, height: 440, rx: 16, fill: "var(--card)", stroke: "var(--line)"}, g); R(card, 150 + i * 150);
+    const c = G(g, "r", 350 + i * 150), cx = x0 + 106, d = 500 + i * 150;
+    if (i === 0) { for (let k = 0; k < 5; k++) { const y = 215 + k * 48; line(c, cx - 70, y, cx + 42, 330 + 12 * (k - 2), d + k * 80); node(c, cx - 70, y, false, 9); } node(c, cx + 56, 330, true, 14); }
+    if (i === 1) { node(c, cx - 56, 330, true, 14); for (let k = 0; k < 5; k++) { const y = 215 + k * 48; line(c, cx - 42, 330 + 12 * (k - 2), cx + 56, y, d + k * 80); node(c, cx + 62, y, false, 9); } }
+    if (i === 2) { [[cx - 66, 240], [cx - 22, 300], [cx + 22, 360], [cx + 66, 420]].forEach(([x, y], k, a) => { node(c, x, y, k === a.length - 1, 12); if (k) line(c, a[k - 1][0] + 8, a[k - 1][1] + 10, x - 8, y - 10, d + k * 200); }); }
+    if (i === 3) { const pts = [[cx, 240], [cx + 62, 330], [cx, 420], [cx - 62, 330]]; pts.forEach(([x, y], k) => { node(c, x, y, k === 0, 12); const [x2, y2] = pts[(k + 1) % 4]; line(c, x + (x2 - x) * .2, y + (y2 - y) * .2, x + (x2 - x) * .8, y + (y2 - y) * .8, d + k * 200, true); }); }
+    if (i === 4) { for (let k = 0; k < 5; k++) { const y = 215 + k * 48; S("rect", {x: cx - 78, y: y - 8, width: 26 + (k % 2) * 6, height: 16, rx: 4, fill: "var(--amber)"}, c); line(c, cx - 40, y, cx + 42, 330 + 12 * (k - 2), d + k * 80); } node(c, cx + 56, 330, true, 14); }
+    const lab = R(T(svg, cx, 540, name, {size: 24, weight: 700, anchor: "middle"}), 900 + i * 100);
+    const nn = T(svg, cx, 574, "", {size: 18, anchor: "middle", cls: "t2"}); nn.dataset.count = n; nn.dataset.suf = " rows"; R(nn, 1000 + i * 100);
+  });
+});
+
+/* 4 - the setup: central vs federated */
+newSlide("Two setups", (svg) => {
+  title(svg, "The setup", "Pool the data, or keep it home?");
+  const cols = ["var(--blue)", "var(--orange)", "var(--aqua)"];
+  [[330, "Central", false], [950, "Federated", true]].forEach(([cx, name, fed], pi) => {
+    const panel = S("rect", {x: cx - 290, y: 140, width: 580, height: 520, rx: 18, fill: "var(--card)", stroke: fed ? "var(--aqua)" : "var(--line)", "stroke-width": fed ? 3 : 1}, svg); R(panel, 150 + pi * 400);
+    R(T(svg, cx, 190, name, {size: 28, weight: 700, anchor: "middle"}), 300 + pi * 400);
+    const ys = [270, 400, 530], sx = cx - 190, tx = cx + 190, g = G(svg, "r", 400 + pi * 400);
+    ys.forEach((y, i) => {
+      cylinder(g, sx, y, 54, 66, cols[i], null); T(g, sx, y + 56, "Bank " + BANKS[i], {size: 17, anchor: "middle", cls: "t2"});
+      const p = S("path", {d: `M${sx + 40} ${y}L${tx - 60} 400`, fill: "none", stroke: "var(--line)", "stroke-width": 3}, g);
+      const dot = S(fed ? "g" : "g", {}, g);
+      if (fed) { const h = miniHist(dot, -16, 12, "var(--aqua)", .9); S("animateMotion", {dur: "3s", repeatCount: "indefinite", begin: (i * .6) + "s", path: `M${sx + 70} ${y - 6}L${tx - 90} ${394 + (i - 1) * 6}`}, dot); }
+      else { rowsIcon(dot, -17, -17, "var(--muted)"); S("animateMotion", {dur: "3s", repeatCount: "indefinite", begin: (i * .6) + "s", path: `M${sx + 70} ${y - 6}L${tx - 90} ${394 + (i - 1) * 6}`}, dot); }
+      if (fed) lock(g, sx + 36, y - 40, .8, "var(--aqua)");
+    });
+    cylinder(g, tx, 400, 90, 110, "var(--text2)", fed ? "Server" : "One model");
+    if (fed) T(g, tx, 410, "Σ", {size: 40, weight: 700, anchor: "middle"}); else S("circle", {cx: tx, cy: 400, r: 0}, g);
+    const cap = R(T(svg, cx, 626, fed ? "Only histograms travel" : "Every row travels", {size: 22, anchor: "middle", cls: "t2", weight: 600}), 900 + pi * 300);
+  });
+});
+
+/* 5 - the pipeline flowchart */
+newSlide("Pipeline", (svg) => {
+  title(svg, "The pipeline", "From transactions to alerts");
+  const steps = [["Transactions", "rows"], ["33 features", "hist"], ["Tree model", "tree"], ["Threshold", "slider"], ["Alerts", "alert"], ["Look back", "back"]];
+  steps.forEach(([lab, ic], i) => {
+    const x = 60 + i * 200, g = G(svg, "r", 200 + i * 160);
+    S("rect", {x, y: 150, width: 160, height: 130, rx: 16, fill: "var(--card)", stroke: i === 5 ? "var(--aqua)" : "var(--line)", "stroke-width": i === 5 ? 3 : 1.5}, g);
+    const cx = x + 80, cy = 202;
+    if (ic === "rows") rowsIcon(g, cx - 17, cy - 16);
+    if (ic === "hist") miniHist(g, cx - 22, cy + 18, "var(--blue)", 1.1);
+    if (ic === "tree") { [[cx, cy - 18], [cx - 22, cy + 6], [cx + 22, cy + 6], [cx - 34, cy + 28], [cx - 10, cy + 28]].forEach(([a, b], k, arr) => { if (k) S("line", {x1: arr[k < 3 ? 0 : 1][0], y1: arr[k < 3 ? 0 : 1][1], x2: a, y2: b, stroke: "var(--muted)", "stroke-width": 2.5}, g); }); [[cx, cy - 18], [cx - 22, cy + 6], [cx + 22, cy + 6], [cx - 34, cy + 28], [cx - 10, cy + 28]].forEach(([a, b]) => S("circle", {cx: a, cy: b, r: 6.5, fill: "var(--blue)"}, g)); }
+    if (ic === "slider") { S("line", {x1: cx - 34, y1: cy, x2: cx + 34, y2: cy, stroke: "var(--line)", "stroke-width": 6, "stroke-linecap": "round"}, g); S("circle", {cx: cx + 10, cy, r: 11, fill: "var(--blue)"}, g); }
+    if (ic === "alert") { S("path", {d: `M${cx} ${cy - 22}L${cx + 24} ${cy + 18}H${cx - 24}Z`, fill: "var(--red)"}, g); S("rect", {x: cx - 2.5, y: cy - 8, width: 5, height: 14, rx: 2, fill: "var(--card)"}, g); S("circle", {cx, cy: cy + 11, r: 2.8, fill: "var(--card)"}, g); }
+    if (ic === "back") { S("path", {d: `M${cx + 26} ${cy - 10}A26 26 0 1 0 ${cx + 12} ${cy + 22}`, fill: "none", stroke: "var(--aqua)", "stroke-width": 5, "stroke-linecap": "round"}, g); S("path", {d: `M${cx + 12} ${cy - 24}L${cx + 30} ${cy - 8}L${cx + 8} ${cy - 2}Z`, fill: "var(--aqua)"}, g); }
+    T(g, cx, 264, lab, {size: 19, weight: 700, anchor: "middle"});
+    if (i < 5) { const a = R(S("g", {}, svg), 280 + i * 160); arrow(a, x + 168, 215, x + 192, 215, {w: 3}); }
+  });
+  /* history features: an account timeline with look-back windows */
+  const gl = G(svg, "r", 1300); S("rect", {x: 60, y: 330, width: 560, height: 330, rx: 18, fill: "var(--card)", stroke: "var(--line)"}, gl);
+  T(gl, 84, 372, "History features", {size: 22, weight: 700});
+  S("line", {x1: 90, y1: 520, x2: 590, y2: 520, stroke: "var(--line)", "stroke-width": 4, "stroke-linecap": "round"}, gl);
+  [110, 160, 235, 300, 345, 410, 445, 505, 540].forEach((x) => S("circle", {cx: x, cy: 520, r: 7, fill: "var(--muted)"}, gl));
+  S("circle", {cx: 565, cy: 520, r: 11, fill: "var(--blue)"}, gl);
+  [[440, "1h", 470], [330, "6h", 436], [180, "24h", 402]].forEach(([x1, l, y]) => { S("path", {d: `M${x1} ${y + 20}V${y + 30}H565V${y + 20}`, fill: "none", stroke: "var(--blue)", "stroke-width": 3, opacity: .85}, gl); T(gl, (x1 + 565) / 2, y + 22, l, {size: 17, anchor: "middle", weight: 700, cls: "t2"}); });
+  ["new payee?", "count / hour", "account age", "gap"].forEach((t, i) => { const x = 84 + i * 132; S("rect", {x, y: 580, width: 122, height: 34, rx: 17, fill: "var(--bg)", stroke: "var(--line)"}, gl); T(gl, x + 61, 603, t, {size: 15, anchor: "middle", cls: "t2"}); });
+  /* retroactive flagging: a later alert lights up earlier rows */
+  const gr = G(svg, "r", 1500); S("rect", {x: 660, y: 330, width: 560, height: 330, rx: 18, fill: "var(--card)", stroke: "var(--line)"}, gr);
+  T(gr, 684, 372, "Retroactive flagging", {size: 22, weight: 700});
+  S("line", {x1: 690, y1: 520, x2: 1190, y2: 520, stroke: "var(--line)", "stroke-width": 4, "stroke-linecap": "round"}, gr);
+  [720, 800, 880, 960, 1040].forEach((x, i) => { const dot = S("circle", {cx: x, cy: 520, r: 9, fill: i > 1 ? "var(--amber)" : "var(--muted)"}, gr); if (i > 1) { dot.classList.add("blink"); dot.style.animationDelay = (i * .25) + "s"; } });
+  S("circle", {cx: 1150, cy: 520, r: 14, fill: "var(--red)", class: "pulse"}, gr);
+  S("path", {d: "M1150 490Q1050 420 925 490", fill: "none", stroke: "var(--aqua)", "stroke-width": 4, "marker-end": "url(#ah)", "stroke-linecap": "round"}, gr);
+  T(gr, 1040, 430, "look back", {size: 17, anchor: "middle", weight: 700, cls: "t2"});
+  [[1150, "alert", "var(--red)"], [960, "now flagged", "var(--amber)"], [760, "left alone", "var(--muted)"]].forEach(([x, l, c], i) => { S("circle", {cx: [696, 836, 986][i], cy: 618, r: 6, fill: c}, gr); T(gr, [708, 848, 998][i], 624, l, {size: 16, cls: "t2"}); });
+});
+
+/* 6 - how the federated tree trains: a loop of messages */
+newSlide("Training loop", (svg) => {
+  title(svg, "Federated training", "Banks and server take turns");
+  const N = [[420, 260, "Histograms", "bank"], [800, 260, "Add up", "sum"], [800, 550, "Best split", "split"], [420, 550, "Apply", "apply"]];
+  const path = "M420 260H800V550H420Z";
+  S("path", {d: path, fill: "none", stroke: "var(--line)", "stroke-width": 4, "stroke-dasharray": "3 10", "stroke-linecap": "round"}, svg);
+  const tok = RS(S("g", {}, svg), 900); const c = S("circle", {r: 11, fill: "var(--blue)"}, tok); S("animateMotion", {dur: "7s", repeatCount: "indefinite", path}, c);
+  N.forEach(([x, y, lab, ic], i) => {
+    const g = G(svg, "rs", 250 + i * 200); S("circle", {cx: x, cy: y, r: 70, fill: "var(--card)", stroke: i % 3 === 0 ? "var(--aqua)" : "var(--blue)", "stroke-width": 4}, g);
+    if (ic === "bank") { cylinder(g, x - 18, y - 8, 30, 38, "var(--aqua)"); miniHist(g, x + 4, y + 22, "var(--aqua)", .8); }
+    if (ic === "sum") T(g, x, y + 20, "Σ", {size: 64, weight: 700, anchor: "middle"});
+    if (ic === "split") { S("path", {d: `M${x} ${y + 26}V${y}M${x} ${y}L${x - 26} ${y - 26}M${x} ${y}L${x + 26} ${y - 26}`, fill: "none", stroke: "var(--text)", "stroke-width": 5, "stroke-linecap": "round"}, g); [[x - 26, y - 26], [x + 26, y - 26], [x, y + 26]].forEach(([a, b]) => S("circle", {cx: a, cy: b, r: 8, fill: "var(--blue)"}, g)); }
+    if (ic === "apply") { rowsIcon(g, x - 17, y - 24, "var(--aqua)"); S("path", {d: `M${x - 20} ${y + 16}H${x + 14}M${x + 4} ${y + 6}L${x + 16} ${y + 16}L${x + 4} ${y + 26}`, fill: "none", stroke: "var(--text)", "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); }
+    T(g, x, y + (y < 300 ? -88 : 108), lab, {size: 22, weight: 700, anchor: "middle"});
+  });
+  const mid = R(S("g", {}, svg), 1300); T(mid, 610, 400, "×5 levels", {size: 26, weight: 700, anchor: "middle"}); T(mid, 610, 437, "×63 trees", {size: 26, weight: 700, anchor: "middle", cls: "t2"});
+  /* what never leaves */
+  const k = G(svg, "r", 1500); S("rect", {x: 980, y: 180, width: 240, height: 380, rx: 18, fill: "var(--card)", stroke: "var(--line)"}, k);
+  lock(k, 1100, 232, 1.5, "var(--aqua)"); T(k, 1100, 298, "Never leaves", {size: 20, weight: 700, anchor: "middle"});
+  [["Rows", 360], ["Labels", 430], ["Accounts", 500]].forEach(([t, y], i) => {
+    if (i === 0) rowsIcon(k, 1010, y - 22); if (i === 1) T(k, 1027, y + 4, "0/1", {size: 22, weight: 800, anchor: "middle", cls: "t2"}); if (i === 2) S("circle", {cx: 1027, cy: y - 6, r: 11, fill: "none", stroke: "var(--muted)", "stroke-width": 3}, k);
+    T(k, 1058, y + 2, t, {size: 22, weight: 600}); S("path", {d: `M1186 ${y - 14}l16 16m0 -16l-16 16`, stroke: "var(--red)", "stroke-width": 4, "stroke-linecap": "round"}, k);
+  });
+});
+
+/* 7 - precision-recall curves */
+newSlide("Curves", (svg) => {
+  title(svg, "Results", "How early are the alerts right?");
+  const X0 = 130, X1 = 900, Y0 = 600, Y1 = 170, X = (r) => X0 + r * (X1 - X0), Y = (p) => Y0 - p * (Y0 - Y1);
+  for (let i = 0; i <= 4; i++) { const v = i / 4; R(S("line", {x1: X0, x2: X1, y1: Y(v), y2: Y(v), stroke: "var(--line)", "stroke-width": 1}, svg), 100); T(svg, X0 - 14, Y(v) + 6, v.toFixed(2).replace(/0$/, ""), {size: 16, anchor: "end", cls: "tm"}); T(svg, X(v), Y0 + 30, v.toFixed(2).replace(/0$/, ""), {size: 16, anchor: "middle", cls: "tm"}); }
+  T(svg, (X0 + X1) / 2, Y0 + 62, "Recall: share of laundering found", {size: 18, anchor: "middle", cls: "t2"});
+  const yl = T(svg, 40, (Y0 + Y1) / 2, "Precision: share of alerts that are right", {size: 18, anchor: "middle", cls: "t2"}); yl.setAttribute("transform", `rotate(-90 40 ${(Y0 + Y1) / 2})`);
+  const series = [["central", "Central (pooled)", "var(--blue)", F.ap_bench], ["fed", "Federated", "var(--aqua)", F.ap_fed], ["local", "Each bank alone", "var(--orange)", F.ap_local]];
+  series.forEach(([k, lab, col, ap], i) => {
+    const pts = D.curves[k], d = pts.map((p, j) => `${j ? "L" : "M"}${X(j / 100).toFixed(1)} ${Y(p).toFixed(1)}`).join("");
+    const p = S("path", {d, fill: "none", stroke: col, "stroke-width": 4, "stroke-linejoin": "round", "stroke-linecap": "round", pathLength: 1, class: "draw"}, svg); p.style.setProperty("--d", 300 + i * 350 + "ms");
+    const g = G(svg, "r", 1400 + i * 200); S("rect", {x: 940, y: 220 + i * 100, width: 290, height: 80, rx: 14, fill: "var(--card)", stroke: "var(--line)"}, g);
+    S("line", {x1: 958, x2: 996, y1: 260 + i * 100, y2: 260 + i * 100, stroke: col, "stroke-width": 5, "stroke-linecap": "round"}, g);
+    T(g, 1010, 252 + i * 100, lab, {size: 19, weight: 600}); T(g, 1010, 282 + i * 100, "PR-AUC " + ap.toFixed(3), {size: 18, cls: "t2"});
+  });
+  const cross = S("line", {y1: Y1, y2: Y0, stroke: "var(--muted)", "stroke-width": 1.5, "stroke-dasharray": "4 4", visibility: "hidden"}, svg);
+  const hit = S("rect", {x: X0, y: Y1, width: X1 - X0, height: Y0 - Y1, fill: "transparent"}, svg);
+  hit.addEventListener("mousemove", (e) => {
+    const b = svg.getBoundingClientRect(), k = 1280 / b.width, r = Math.max(0, Math.min(1, ((e.clientX - b.left) * k - X0) / (X1 - X0))), j = Math.round(r * 100);
+    cross.setAttribute("x1", X(r)); cross.setAttribute("x2", X(r)); cross.setAttribute("visibility", "visible");
+    const t = $("tip"); t.style.display = "block"; t.style.left = Math.min(e.clientX + 14, innerWidth - 320) + "px"; t.style.top = (e.clientY + 14) + "px";
+    t.innerHTML = `<b>At recall ${(j / 100).toFixed(2)}</b><br>` + series.map(([kk, lab, col]) => `<span style="color:${col}">●</span> ${lab}: precision ${D.curves[kk][j].toFixed(2)}`).join("<br>");
+  });
+  hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); $("tip").style.display = "none"; });
+});
+
+/* 8 - every setting, with a metric switch */
+newSlide("All settings", (svg) => {
+  title(svg, "Results", "Seven ways to train");
+  const order = ["Central tree, pooled history (benchmark)", "Central tree, local-view features", "Central histogram-GBDT, pooled history", "Central histogram-GBDT, local features",
+                 "Local-only, each bank alone", "One-shot ensemble of local trees", "Federated histogram-GBDT (3 banks)"];
+  const fam = (r) => r.family;
+  const metrics = {ap: ["PR-AUC", (r) => r.ap, null, 0.7, (v) => v.toFixed(3)], f1: ["F1", (r) => r.f1[0], (r) => r.f1[1], 80, (v) => v.toFixed(1)], retro: ["F1 + look-back", (r) => r.retro[0], (r) => r.retro[1], 80, (v) => v.toFixed(1)]};
+  const chart = S("g", {}, svg), bx = 520, bw = 560; let metric = "ap";
+  function draw() {
+    chart.innerHTML = ""; const [lab, val, sd, max, fmt] = metrics[metric];
+    order.forEach((nm, i) => {
+      const r = ROWS[nm], y = 168 + i * 66, v = val(r), w = v / max * bw, g = S("g", {}, chart);
+      T(g, bx - 18, y + 24, nm.replace(" (3 banks)", "").replace(", pooled history (benchmark)", " (pooled, benchmark)"), {size: 17, anchor: "end", weight: i === 6 ? 700 : 500});
+      S("rect", {x: bx, y, width: bw, height: 32, rx: 4, fill: "var(--line)", opacity: .35}, g);
+      const bar = S("path", {d: barPath(bx, y + 4, w, 24, 4, "r"), fill: FAM[fam(r)]}, g); bar.classList.add("growx"); bar.style.setProperty("--d", 120 * i + "ms"); bar.style.transition = "none"; bar.style.transform = "scaleX(0)";
+      requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.transition = "transform .9s cubic-bezier(.2,.8,.2,1) " + (100 * i) + "ms"; bar.style.transform = "scaleX(1)"; }));
+      let sdx = 0; if (sd && r.runs > 1) { const s = sd(r) / max * bw, c = bx + w; S("path", {d: `M${c - s} ${y + 16}H${c + s}M${c - s} ${y + 9}V${y + 23}M${c + s} ${y + 9}V${y + 23}`, stroke: "var(--text)", "stroke-width": 2, fill: "none", opacity: .7}, g); sdx = s; }
+      T(g, bx + w + sdx + 12, y + 24, fmt(v), {size: 20, weight: 700});
+      tip(g, `<b>${nm}</b><br>F1 ${r.f1[0].toFixed(1)}${r.runs > 1 ? " ± " + r.f1[1].toFixed(1) : ""} · precision ${r.p.toFixed(1)} · recall ${r.r.toFixed(1)}<br>PR-AUC ${r.ap.toFixed(3)} · with look-back F1 ${r.retro[0].toFixed(1)}<br>caught ${Math.round(r.caught)} · false alarms ${Math.round(r.fa)}<br>${r.runs} run${r.runs > 1 ? "s (whisker = ±1 std)" : ""}`);
+    });
+    pills.forEach(([k, g, rect]) => rect.setAttribute("fill", k === metric ? "var(--blue)" : "var(--card)"));
+    pills.forEach(([k, g, rect, txt]) => txt.style.fill = k === metric ? "#fff" : "var(--text)");
+  }
+  const pills = Object.entries(metrics).map(([k, m], i) => {
+    const g = S("g", {class: "pill"}, svg), x = 760 + i * 140, rect = S("rect", {x, y: 34, width: i === 2 ? 150 : 124, height: 38, rx: 19, fill: "var(--card)", stroke: "var(--line)"}, g);
+    const txt = T(g, x + (i === 2 ? 75 : 62), 59, m[0], {size: 16, weight: 700, anchor: "middle"}); R(g, 200);
+    g.addEventListener("click", (e) => { e.stopPropagation(); metric = k; draw(); }); return [k, g, rect, txt];
+  });
+  const lg = R(S("g", {}, svg), 1200); [["Central", "var(--blue)"], ["Each bank alone", "var(--orange)"], ["Federated", "var(--aqua)"]].forEach(([l, c], i) => { S("rect", {x: 520 + i * 190, y: 640, width: 18, height: 18, rx: 4, fill: c}, lg); T(lg, 546 + i * 190, 655, l, {size: 17, cls: "t2"}); });
+  slides[slides.length] = null; slides.pop(); svg.__draw = draw; draw();
+}, function () { const s = slides.find((x) => x.name === "All settings"); if (s && s.svg.__draw) s.svg.__draw(); });
+
+/* 9 - per bank: alone vs federated vs pooled */
+newSlide("Per bank", (svg) => {
+  title(svg, "Results", "Who gains from joining?");
+  const base = 610, top = 190, max = 70, H = (v) => v / max * (base - top);
+  S("line", {x1: 100, x2: 1180, y1: base, y2: base, stroke: "var(--line)", "stroke-width": 2}, svg);
+  const alone = ROWS["Local-only, each bank alone"].bank, fed = ROWS["Federated histogram-GBDT (3 banks)"].bank, pooled = ROWS["Central tree, pooled history (benchmark)"].bank;
+  BANKS.forEach((b, i) => {
+    const gx = 200 + i * 340, bw = 70;
+    [[alone[i], "var(--orange)", gx], [fed[i], "var(--aqua)", gx + bw + 14]].forEach(([v, col, x], k) => {
+      const bar = S("path", {d: barPath(x, base - H(v), bw, H(v), 4, "u"), fill: col}, svg); bar.classList.add("growy"); bar.style.setProperty("--d", 300 + i * 200 + k * 150 + "ms");
+      R(T(svg, x + bw / 2, base - H(v) - 12, v.toFixed(1), {size: 22, weight: 700, anchor: "middle"}), 800 + i * 200 + k * 150);
+      tip(bar, `<b>Bank ${b}</b> ${k ? "federated" : "alone"}: F1 ${v.toFixed(1)}`);
+    });
+    const ch = (fed[i] / alone[i] - 1) * 100, up = ch >= 0, cx = gx + bw + 7, cg = G(svg, "rs", 1500 + i * 200);
+    S("rect", {x: cx - 56, y: 150 + (i === 1 ? 0 : 0), width: 112, height: 40, rx: 20, fill: "var(--card)", stroke: "var(--line)"}, cg);
+    S("path", {d: up ? `M${cx - 36} ${178}L${cx - 28} ${162}L${cx - 20} ${178}Z` : `M${cx - 36} ${162}L${cx - 28} ${178}L${cx - 20} ${162}Z`, fill: up ? "var(--good)" : "var(--red)"}, cg);
+    T(cg, cx + 10, 177, (up ? "+" : "−") + Math.abs(ch).toFixed(0) + "%", {size: 22, weight: 800, anchor: "middle"});
+    R(T(svg, cx, base + 38, "Bank " + b, {size: 22, weight: 700, anchor: "middle"}), 600 + i * 150);
+    const py = base - H(pooled[i]); R(S("line", {x1: gx - 14, x2: gx + 2 * bw + 28, y1: py, y2: py, stroke: "var(--text)", "stroke-width": 2, "stroke-dasharray": "6 5", opacity: .55}, svg), 1700 + i * 150);
+  });
+  const lg = R(S("g", {}, svg), 1200); [["Alone", "var(--orange)", 0], ["Federated", "var(--aqua)", 140], ["Pooled benchmark", "var(--text)", 300]].forEach(([l, c, dx], i) => {
+    if (i < 2) S("rect", {x: 440 + dx, y: 668, width: 18, height: 18, rx: 4, fill: c}, lg); else S("line", {x1: 440 + dx, x2: 462 + dx, y1: 677, y2: 677, stroke: c, "stroke-width": 2, "stroke-dasharray": "5 4"}, lg);
+    T(lg, 470 + dx, 683, l, {size: 17, cls: "t2"}); });
+  T(svg, 64, 134, "F1 on each bank's own rows", {size: 16, cls: "tm"});
+});
+
+/* 10 - where the remaining gap comes from */
+newSlide("Gap", (svg) => {
+  title(svg, "Results", "Where the loss comes from");
+  const lo = 0.54, hi = 0.62, Y = (v) => 590 - (v - lo) / (hi - lo) * 400, xs = [200, 480, 760, 1040], pts = D.steps.map((s) => s.v);
+  for (let v = 0.54; v <= 0.6201; v += 0.02) { S("line", {x1: 120, x2: 1180, y1: Y(v), y2: Y(v), stroke: "var(--line)", "stroke-width": 1}, svg); T(svg, 106, Y(v) + 6, v.toFixed(2), {size: 16, anchor: "end", cls: "tm"}); }
+  T(svg, 120, 176, "PR-AUC (axis starts at 0.54)", {size: 16, cls: "tm"});
+  const d = pts.map((v, i) => `${i ? "L" : "M"}${xs[i]} ${Y(v)}`).join(""); const line = S("path", {d, fill: "none", stroke: "var(--muted)", "stroke-width": 3, pathLength: 1, class: "draw", "stroke-dasharray": 1}, svg); line.style.setProperty("--d", "300ms");
+  const labs = ["Benchmark", "Own tree", "Own history only", "Federated"], cols = ["var(--blue)", "var(--blue)", "var(--blue)", "var(--aqua)"];
+  pts.forEach((v, i) => {
+    const g = G(svg, "rs", 500 + i * 350); S("circle", {cx: xs[i], cy: Y(v), r: 13, fill: cols[i], stroke: "var(--bg)", "stroke-width": 3}, g);
+    T(g, xs[i], Y(v) - 24, v.toFixed(3), {size: 24, weight: 800, anchor: "middle"}); R(T(svg, xs[i], 650, labs[i], {size: 19, weight: 600, anchor: "middle"}), 600 + i * 350);
+    tip(g, `<b>${D.steps[i].label}</b><br>PR-AUC ${v.toFixed(4)}`);
+    if (i) { const dv = v - pts[i - 1], mx = (xs[i] + xs[i - 1]) / 2, my = (Y(v) + Y(pts[i - 1])) / 2, cg = G(svg, "r", 800 + i * 350);
+      S("rect", {x: mx - 62, y: my - 62, width: 124, height: 36, rx: 18, fill: "var(--card)", stroke: "var(--line)"}, cg); T(cg, mx, my - 37, dv.toFixed(3).replace("-", "−"), {size: 20, weight: 800, anchor: "middle"}); }
+  });
+  /* icons for each cause, above the chips */
+  const ic = [["gear", 340], ["eye", 620], ["ruler", 900]];
+  ic.forEach(([k, x], i) => { const g = G(svg, "r", 1000 + i * 350), y = (Y(pts[i]) + Y(pts[i + 1])) / 2 - 104;
+    if (k === "gear") { S("circle", {cx: x, cy: y, r: 13, fill: "none", stroke: "var(--text2)", "stroke-width": 5}, g); for (let a = 0; a < 8; a++) { const t = a * Math.PI / 4; S("line", {x1: x + Math.cos(t) * 16, y1: y + Math.sin(t) * 16, x2: x + Math.cos(t) * 23, y2: y + Math.sin(t) * 23, stroke: "var(--text2)", "stroke-width": 5, "stroke-linecap": "round"}, g); } }
+    if (k === "eye") { S("path", {d: `M${x - 26} ${y}Q${x} ${y - 24} ${x + 26} ${y}Q${x} ${y + 24} ${x - 26} ${y}Z`, fill: "none", stroke: "var(--text2)", "stroke-width": 4}, g); S("circle", {cx: x, cy: y, r: 7, fill: "var(--text2)"}, g); S("line", {x1: x - 24, y1: y + 22, x2: x + 24, y2: y - 22, stroke: "var(--red)", "stroke-width": 5, "stroke-linecap": "round"}, g); }
+    if (k === "ruler") { S("rect", {x: x - 28, y: y - 9, width: 56, height: 18, rx: 3, fill: "none", stroke: "var(--text2)", "stroke-width": 4}, g); [-16, -4, 8, 20].forEach((dx) => S("line", {x1: x + dx, y1: y - 9, x2: x + dx, y2: y - 1, stroke: "var(--text2)", "stroke-width": 3}, g)); }
+  });
+  /* the check: shared bin edges recover almost everything */
+  const cg = G(svg, "r", 2300), x = xs[3], yy = Y(F.ap_same_edges);
+  S("circle", {cx: x, cy: yy, r: 15, fill: "none", stroke: "var(--aqua)", "stroke-width": 4, "stroke-dasharray": "5 4"}, cg);
+  S("path", {d: `M${x + 22} ${yy}H${x + 70}`, stroke: "var(--aqua)", "stroke-width": 3, "marker-end": "url(#ah)"}, cg);
+  T(cg, x + 76, yy - 4, F.ap_same_edges.toFixed(3), {size: 20, weight: 800}); T(cg, x + 76, yy + 20, "shared bin edges", {size: 15, cls: "t2"});
+});
+
+/* 11 - scoreboard */
+newSlide("Scoreboard", (svg) => {
+  title(svg, "The headline", "What federated learning bought");
+  const tiles = [[F.ap_gain * 100, "+", "%", "PR-AUC vs bank alone", "up", "var(--aqua)", 0], [F.f1_gain * 100, "+", "%", "F1 vs bank alone", "up", "var(--aqua)", 0],
+                 [F.recovered * 100, "", "%", "of pooling's gain recovered", "ring", "var(--blue)", 0], [Math.abs(F.ap_vs_central) * 100, "−", "%", "PR-AUC vs pooled data", "down", "var(--orange)", 0]];
+  tiles.forEach(([v, pre, suf, lab, ic, col], i) => {
+    const x = 64 + (i % 2) * 570, y = 160 + Math.floor(i / 2) * 250, g = G(svg, "r", 200 + i * 220);
+    S("rect", {x, y, width: 540, height: 224, rx: 20, fill: "var(--card)", stroke: "var(--line)"}, g);
+    if (ic === "ring") { S("circle", {cx: x + 110, cy: y + 112, r: 60, fill: "none", stroke: "var(--line)", "stroke-width": 18}, g); const c = 2 * Math.PI * 60; const a = S("circle", {cx: x + 110, cy: y + 112, r: 60, fill: "none", stroke: col, "stroke-width": 18, "stroke-linecap": "round", "stroke-dasharray": `${c * v / 100} ${c}`, transform: `rotate(-90 ${x + 110} ${y + 112})`}, g); }
+    else S("path", {d: ic === "up" ? `M${x + 60} ${y + 150}L${x + 110} ${y + 70}L${x + 160} ${y + 150}Z` : `M${x + 60} ${y + 74}L${x + 110} ${y + 154}L${x + 160} ${y + 74}Z`, fill: col}, g);
+    const n = T(g, x + 200, y + 128, "", {size: 76, weight: 800}); n.dataset.count = v; n.dataset.pre = pre; n.dataset.suf = suf;
+    T(g, x + 202, y + 176, lab, {size: 21, cls: "t2"});
+  });
+});
+
+/* 12 - what to take away */
+newSlide("Takeaways", (svg) => {
+  title(svg, "Take-aways", "What to infer");
+  const C = [["join", "Joining beats going alone", "var(--aqua)", "ok"], ["train", "Train together, don't average", "var(--aqua)", "ok"], ["hist", "Hidden cross-bank history costs most", "var(--orange)", "warn"], ["synth", "Synthetic, two days: indicative only", "var(--orange)", "warn"]];
+  C.forEach(([k, t, col, kind], i) => {
+    const x = 64 + i * 288, g = G(svg, "r", 200 + i * 250); S("rect", {x, y: 170, width: 268, height: 400, rx: 20, fill: "var(--card)", stroke: col, "stroke-width": 2.5}, g);
+    const cx = x + 134, cy = 290, ic = G(g, "", 0);
+    if (k === "join") { [[-44, 14], [0, -26], [44, 14]].forEach(([dx, dy]) => S("circle", {cx: cx + dx, cy: cy + dy, r: 17, fill: col}, ic)); [[-44, 14, 0, -26], [0, -26, 44, 14], [-44, 14, 44, 14]].forEach(([a, b, c, d]) => S("line", {x1: cx + a, y1: cy + b, x2: cx + c, y2: cy + d, stroke: col, "stroke-width": 4}, ic)); }
+    if (k === "train") { miniHist(ic, cx - 70, cy + 40, col, 1.9); S("text", {x: cx + 30, y: cy + 30, "font-size": 70, "font-weight": 800, fill: col}, ic).textContent = "Σ"; }
+    if (k === "hist") { S("path", {d: `M${cx - 50} ${cy}Q${cx} ${cy - 40} ${cx + 50} ${cy}Q${cx} ${cy + 40} ${cx - 50} ${cy}Z`, fill: "none", stroke: col, "stroke-width": 6}, ic); S("circle", {cx, cy, r: 12, fill: col}, ic); S("line", {x1: cx - 44, y1: cy + 38, x2: cx + 44, y2: cy - 38, stroke: "var(--red)", "stroke-width": 8, "stroke-linecap": "round"}, ic); }
+    if (k === "synth") { S("path", {d: `M${cx - 22} ${cy - 50}H${cx + 22}M${cx - 14} ${cy - 50}V${cy - 10}L${cx - 44} ${cy + 44}Q${cx - 48} ${cy + 54} ${cx - 36} ${cy + 54}H${cx + 36}Q${cx + 48} ${cy + 54} ${cx + 44} ${cy + 44}L${cx + 14} ${cy - 10}V${cy - 50}`, fill: "none", stroke: col, "stroke-width": 6, "stroke-linejoin": "round", "stroke-linecap": "round"}, ic); S("circle", {cx: cx - 6, cy: cy + 34, r: 6, fill: col}, ic); S("circle", {cx: cx + 12, cy: cy + 24, r: 4, fill: col}, ic); }
+    const words = t.split(" "), lines = []; let ln = ""; words.forEach((w) => { if ((ln + " " + w).trim().length > 17) { lines.push(ln.trim()); ln = w; } else ln += " " + w; }); lines.push(ln.trim());
+    lines.forEach((l, j) => T(g, cx, 420 + j * 34, l, {size: 25, weight: 700, anchor: "middle"}));
+    S("circle", {cx, cy: 540, r: 11, fill: kind === "ok" ? "var(--good)" : "var(--amber)"}, g);
+  });
+});
+
+/* 13 - full numbers */
+newSlide("Table", (svg) => {
+  title(svg, "Appendix", "Full numbers");
+  const order = ["Central tree, pooled history (benchmark)", "Central tree, local-view features", "Central histogram-GBDT, pooled history", "Central histogram-GBDT, local features", "Local-only, each bank alone", "One-shot ensemble of local trees", "Federated histogram-GBDT (3 banks)"];
+  const cols = [["Setting", 64, "start"], ["F1", 560, "end"], ["Prec.", 650, "end"], ["Recall", 740, "end"], ["PR-AUC", 850, "end"], ["F1 + look-back", 990, "end"], ["Bank A", 1085, "end"], ["B", 1150, "end"], ["C", 1215, "end"]];
+  cols.forEach(([h, x, a]) => R(T(svg, x, 168, h, {size: 16, weight: 700, anchor: a, cls: "t2"}), 100));
+  order.forEach((nm, i) => {
+    const r = ROWS[nm], y = 214 + i * 58, g = G(svg, "r", 200 + i * 90); S("rect", {x: 54, y: y - 30, width: 1172, height: 50, rx: 10, fill: r.family === "fed" ? "var(--card)" : "none", stroke: r.family === "fed" ? "var(--aqua)" : "none", "stroke-width": 2}, g);
+    S("rect", {x: 64, y: y - 14, width: 8, height: 22, rx: 3, fill: FAM[r.family]}, g); T(g, 84, y + 4, nm, {size: 17, weight: 600});
+    const f = (m, s) => m.toFixed(1) + (r.runs > 1 && s != null ? " ± " + s.toFixed(1) : "");
+    [[f(r.f1[0], r.f1[1]), 560], [r.p.toFixed(1), 650], [r.r.toFixed(1), 740], [r.ap.toFixed(3), 850], [f(r.retro[0], r.retro[1]), 990], [r.bank[0].toFixed(1), 1085], [r.bank[1].toFixed(1), 1150], [r.bank[2].toFixed(1), 1215]].forEach(([v, x]) => T(g, x, y + 4, v, {size: 17, anchor: "end"}));
+  });
+  R(T(svg, 64, 650, "Test set: " + fmtN(F.test_laundering) + " laundering rows of 192,701. ± = std over 3 seeds; single runs have none. Local features: each bank sees only its own folder.", {size: 15, cls: "tm"}), 1000);
+});
+
+/* ---------- chrome wiring ---------- */
+slides.forEach((s, i) => { const b = document.createElement("button"); b.title = s.name; b.setAttribute("aria-label", s.name); b.onclick = () => go(i); $("dots").appendChild(b); });
+addEventListener("resize", fit); fit();
+addEventListener("keydown", (e) => {
+  if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); go(cur + 1); }
+  if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); go(cur - 1); }
+  if (e.key === "Home") go(0); if (e.key === "End") go(slides.length - 1);
+  if (e.key === "f") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+});
+$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+let sx = null; addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; }); addEventListener("touchend", (e) => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 50) go(cur + (dx < 0 ? 1 : -1)); sx = null; });
+$("stage").addEventListener("click", (e) => { if (!e.target.closest(".pill") && !e.target.closest("[data-tip]") && e.clientX > innerWidth * .66) go(cur + 1); });
+requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => go(Math.max(0, (parseInt(location.hash.slice(1)) || 1) - 1)), 50)));
+</script>
+</body>
+</html>

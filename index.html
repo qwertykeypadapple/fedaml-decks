@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FedAML investor preview</title>
+<style>
+:root{
+  color-scheme: light;
+  --bg:#f3f2ee; --card:#fcfcfb; --line:#dcdad1; --text:#0b0b0b; --text2:#52514e; --muted:#898781;
+  --blue:#2a78d6; --orange:#eb6834; --aqua:#1baf7a; --red:#e34948; --amber:#eda100; --good:#006300;
+}
+@media (prefers-color-scheme: dark){
+  :root:where(:not([data-theme="light"])){
+    color-scheme: dark;
+    --bg:#101010; --card:#1a1a19; --line:#34332f; --text:#f0efec; --text2:#c3c2b7; --muted:#898781;
+    --blue:#3987e5; --orange:#d95926; --aqua:#199e70; --red:#e66767; --amber:#c98500; --good:#0ca30c;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#101010; --card:#1a1a19; --line:#34332f; --text:#f0efec; --text2:#c3c2b7; --muted:#898781;
+  --blue:#3987e5; --orange:#d95926; --aqua:#199e70; --red:#e66767; --amber:#c98500; --good:#0ca30c;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#stage{position:absolute;left:50%;top:50%;width:1280px;height:720px;transform-origin:center;background:var(--bg)}
+.slide{position:absolute;inset:0;opacity:0;pointer-events:none;transform:translateX(60px);transition:opacity .55s ease,transform .55s ease}
+.slide.active{opacity:1;pointer-events:auto;transform:none}
+.slide.past{transform:translateX(-60px)}
+.slide svg{width:1280px;height:720px;display:block}
+text{font-family:inherit;fill:var(--text)}
+.t2{fill:var(--text2)} .tm{fill:var(--muted)}
+/* reveal / draw / grow animations (all triggered by .slide.active) */
+.r{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease;transition-delay:var(--d,0ms)}
+.active .r{opacity:1;transform:none}
+.rs{opacity:0;transform:scale(.6);transform-box:fill-box;transform-origin:center;transition:opacity .5s ease,transform .5s cubic-bezier(.2,1.4,.4,1);transition-delay:var(--d,0ms)}
+.active .rs{opacity:1;transform:none}
+.draw{stroke-dasharray:1;stroke-dashoffset:1;transition:stroke-dashoffset 1.5s ease;transition-delay:var(--d,0ms)}
+.active .draw{stroke-dashoffset:0}
+.growx{transform-box:fill-box;transform-origin:left center;transform:scaleX(0);transition:transform .9s cubic-bezier(.2,.8,.2,1);transition-delay:var(--d,0ms)}
+.growy{transform-box:fill-box;transform-origin:center bottom;transform:scaleY(0);transition:transform .9s cubic-bezier(.2,.8,.2,1);transition-delay:var(--d,0ms)}
+.active .growx{transform:scaleX(1)} .active .growy{transform:scaleY(1)}
+.pulse{animation:pulse 1.8s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.75}}
+.blink{animation:blink 2.2s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.25}50%{opacity:1}}
+.pill{cursor:pointer}
+.pill rect{transition:fill .2s}
+.pill:hover rect{fill:var(--line)}
+/* chrome */
+#progress{position:fixed;left:0;top:0;height:4px;width:0;background:var(--blue);transition:width .5s ease;z-index:5}
+#dots{position:fixed;bottom:12px;left:0;right:0;display:flex;justify-content:center;gap:9px;z-index:5}
+#dots button{width:10px;height:10px;padding:0;border-radius:50%;border:0;background:var(--line);cursor:pointer;transition:background .3s,transform .3s}
+#dots button.on{background:var(--blue);transform:scale(1.4)}
+#nav{position:fixed;bottom:6px;right:14px;display:flex;gap:8px;z-index:5}
+#nav button{width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--text);font-size:18px;cursor:pointer}
+#count{position:fixed;bottom:16px;left:16px;font-size:13px;color:var(--muted);z-index:5}
+#tip{position:fixed;display:none;z-index:9;pointer-events:none;background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;line-height:1.45;box-shadow:0 4px 18px rgba(0,0,0,.18);max-width:300px}
+.notrans .slide,.notrans .r,.notrans .rs,.notrans .draw,.notrans .growx,.notrans .growy{transition:none!important}
+@media (prefers-reduced-motion: reduce){
+  .slide,.r,.rs,.draw,.growx,.growy{transition:none!important} .pulse,.blink{animation:none!important}
+}
+</style>
+</head>
+<body>
+<div id="progress"></div>
+<div id="stage"></div>
+<div id="dots"></div>
+<div id="count"></div>
+<div id="nav"><button id="prev" aria-label="Previous slide">&#8592;</button><button id="next" aria-label="Next slide">&#8594;</button></div>
+<div id="tip"></div>
+<script>
+const D = {"curves": {"central": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.993421052631579, 0.9884393063583815, 0.9884393063583815, 0.9884393063583815, 0.9786096256684492, 0.9786096256684492, 0.9746192893401016, 0.9711538461538461, 0.9699570815450643, 0.9699570815450643, 0.9699570815450643, 0.9699570815450643, 0.9573643410852714, 0.9573643410852714, 0.9573643410852714, 0.940959409594096, 0.9357142857142857, 0.9152542372881356, 0.9147540983606557, 0.9137380191693291, 0.9119496855345912, 0.9009009009009009, 0.8892128279883382, 0.8813559322033898, 0.8787878787878788, 0.8696808510638298, 0.8567774936061381, 0.8419753086419753, 0.8207547169811321, 0.8018018018018018, 0.778969957081545, 0.7613168724279835, 0.7306201550387597, 0.6778169014084507, 0.5384615384615384, 0.4434589800443459, 0.40722166499498497, 0.39040451552210725, 0.3892988929889299, 0.34516129032258064, 0.3414442700156986, 0.3377679231337768, 0.3377679231337768, 0.3377679231337768, 0.32424877707896577, 0.31827376938637897, 0.3140983606557377, 0.3016759776536313, 0.28447778418926717, 0.26462836056932, 0.2601126472094214, 0.2534448818897638, 0.24553151458137348, 0.23576512455516013, 0.22658227848101264, 0.22064777327935223, 0.21684376229830776, 0.2092065868263473, 0.1952397378406347, 0.18471953578336556, 0.17829695665539502, 0.17314487632508835, 0.16454646017699115, 0.15872598052118977, 0.14795918367346939, 0.13317504856464493, 0.12376041253470844, 0.11316355810616929, 0.08125318390219052, 0.058292726944594836, 0.05362568777202924, 0.04244645957939417, 0.036654393581359565, 0.03348689750829742, 0.021047433879579053, 0.018390988682468502, 0.014581412888628175, 0.011346054667354307, 0.010311820159535896, 0.008717612491197397, 0.006861112162622553], "local": [0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.8023255813953488, 0.7807486631016043, 0.7688442211055276, 0.6939655172413793, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6676300578034682, 0.6473829201101928, 0.6177215189873417, 0.6102941176470589, 0.5695067264573991, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.5092592592592593, 0.49045521292217326, 0.4684065934065934, 0.4527363184079602, 0.4527363184079602, 0.4527363184079602, 0.4323699421965318, 0.4131147540983607, 0.40227507755946224, 0.4014084507042254, 0.4014084507042254, 0.39539347408829173, 0.38440111420612816, 0.3679163034001744, 0.3596638655462185, 0.3455123113582208, 0.33133881824981304, 0.3225806451612903, 0.3100407055630936, 0.29922779922779924, 0.29507174048658763, 0.284272997032641, 0.2698500832870627, 0.2609846479618846, 0.24863523573200993, 0.23851921274601687, 0.22498907820008737, 0.19499439671273813, 0.18466898954703834, 0.17947860962566844, 0.17123072080579163, 0.16089613034623218, 0.14779625230931645, 0.1328326683877024, 0.12609841827768015, 0.1235356762513312, 0.11830985915492957, 0.10857664233576643, 0.09885057471264368, 0.09378843788437885, 0.08817663817663818, 0.07982602021235768, 0.06598347798807905, 0.05658034764100745, 0.043023643023643025, 0.035624795729382285, 0.029830508474576273, 0.02599984407889608, 0.020128824476650563, 0.015724067968551865, 0.013373706787787031, 0.008136734550725994, 0.007100496227861379, 0.005782368249837346, 0.005444797488416535, 0.00379979035639413], "fed": [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9947643979057592, 0.9801980198019802, 0.9764150943396226, 0.972, 0.972, 0.972, 0.972, 0.972, 0.9689922480620154, 0.9625468164794008, 0.942652329749104, 0.9340277777777778, 0.9183006535947712, 0.8955696202531646, 0.8765060240963856, 0.847887323943662, 0.8333333333333334, 0.8151041666666666, 0.8055555555555556, 0.7622377622377622, 0.73568281938326, 0.6861167002012073, 0.5908319185059423, 0.5144092219020173, 0.5013623978201635, 0.5, 0.46600741656365885, 0.4235423542354235, 0.41047120418848165, 0.3885102239532619, 0.34935622317596565, 0.32961783439490444, 0.3146487294469357, 0.30719885958660015, 0.30655391120507397, 0.2981157469717362, 0.28526249209361165, 0.27563329312424606, 0.270081490104773, 0.2529474812433012, 0.24741735537190082, 0.23365384615384616, 0.2227745142340714, 0.20971117622436167, 0.1936834094368341, 0.1799163179916318, 0.16958495460440987, 0.1571767497034401, 0.14537087168381158, 0.13485374318294496, 0.12064812787387783, 0.10922235248143806, 0.10530232558139535, 0.09667622743377763, 0.09203427483338622, 0.08230683090705487, 0.07350216182828907, 0.06810725195157823, 0.06382978723404255, 0.05812529439472445, 0.05317879665928072, 0.05257457090484919, 0.041959881617888856, 0.034667811527315656, 0.029484806068542015, 0.02637151875973948, 0.023083036732437195, 0.020218661075333235, 0.014633623001823838, 0.013283720212847999, 0.011937636142222527, 0.01020704053818941, 0.00875615763546798, 0.007467887045608196, 0.005810319126769142]}, "rows": [{"name": "Central tree, pooled history (benchmark)", "family": "central", "runs": 3, "f1": [55.90625326689648, 4.318149310972689], "retro": [56.658506289006, 4.934075775537068], "p": 60.32702730701868, "r": 53.333333333333336, "ap": 0.6034455517398106, "caught": 386.6666666666667, "fa": 282.6666666666667, "bank": [58.15696736928731, 52.13158703257714, 56.863063801586435]}, {"name": "Central tree, local-view features", "family": "central", "runs": 3, "f1": [53.189950699465065, 0.5805765805375479], "retro": [55.982675632746776, 1.2902540586349545], "p": 55.541619454618676, "r": 51.03448275862069, "ap": 0.5969773309985261, "caught": 370.0, "fa": 296.3333333333333, "bank": [54.41685715378022, 52.11475615887381, 52.36823377999849]}, {"name": "Local-only, each bank alone", "family": "local", "runs": 3, "f1": [49.929577788106066, 0.5369906049165005], "retro": [51.389524101210405, 0.9530887827530279], "p": 49.867183678802895, "r": 50.206896551724135, "ap": 0.4455063437708515, "caught": 364.0, "fa": 369.6666666666667, "bank": [58.689033147584304, 38.7358066435666, 51.72710568899694]}, {"name": "One-shot ensemble of local trees", "family": "local", "runs": 3, "f1": [46.75353201947177, 3.900720331283964], "retro": [50.11366896057465, 3.1192044769397604], "p": 48.39447633851694, "r": 45.37931034482759, "ap": 0.4584409876990306, "caught": 329.0, "fa": 352.0, "bank": [50.18550406039478, 42.25921947726459, 47.085723375487156]}, {"name": "Central histogram-GBDT, pooled history", "family": "central", "runs": 1, "f1": [61.42625607779579, 0.0], "retro": [62.41021548284118, 0.0], "p": 74.4597249508841, "r": 52.275862068965516, "ap": 0.5887707733535295, "caught": 379.0, "fa": 130.0, "bank": [64.62715105162523, 58.981233243967836, 59.17159763313609]}, {"name": "Central histogram-GBDT, local features", "family": "central", "runs": 1, "f1": [54.075235109717866, 0.0], "retro": [57.77777777777778, 0.0], "p": 62.613430127041745, "r": 47.58620689655172, "ap": 0.5643536267704324, "caught": 345.0, "fa": 206.0, "bank": [58.84476534296029, 55.46666666666667, 44.95677233429395]}, {"name": "Federated histogram-GBDT (3 banks)", "family": "fed", "runs": 1, "f1": [56.16093880972339, 0.0], "retro": [58.292282430213454, 0.0], "p": 71.58119658119658, "r": 46.206896551724135, "ap": 0.5506303930756498, "caught": 335.0, "fa": 133.0, "bank": [63.01369863013698, 53.481894150417816, 48.29721362229102]}], "steps": [{"label": "Central tree, pooled history", "v": 0.6034455517398106}, {"label": "Same, own histogram-GBDT", "v": 0.5887707733535295}, {"label": "Banks see only their own history", "v": 0.5643536267704324}, {"label": "Banks train together by sharing histograms", "v": 0.5506303930756498}], "facts": {"ap_gain": 0.23596532524095615, "f1_gain": 0.12480299849644871, "ap_vs_central": -0.08752265802919257, "recovered": 0.6655981795569027, "f1_fed": 56.16093880972339, "f1_bench": 55.90625326689648, "f1_bench_sd": 4.318149310972689, "ap_local": 0.4455063437708515, "ap_fed": 0.5506303930756498, "ap_bench": 0.6034455517398106, "ap_same_edges": 0.5634559287857293, "n_rows": 963502, "n_laundering": 3032, "test_laundering": 725, "owned": [480556, 288580, 194366], "owned_rate": [0.0025595352050541455, 0.0030736710790768593, 0.004707613471491927]}};
+const NS = "http://www.w3.org/2000/svg";
+const $ = (id) => document.getElementById(id);
+const F = D.facts, ROWS = Object.fromEntries(D.rows.map(r => [r.name, r]));
+const FAM = {central: "var(--blue)", local: "var(--orange)", fed: "var(--aqua)"};
+const BANKS = ["A", "B", "C"];
+
+/* ---------- tiny SVG toolkit ---------- */
+function S(tag, a = {}, parent) { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); if (parent) parent.appendChild(e); return e; }
+function T(parent, x, y, str, o = {}) {
+  const e = S("text", {x, y, "font-size": o.size || 22, "font-weight": o.weight || 500, "text-anchor": o.anchor || "start"}, parent);
+  if (o.cls) e.setAttribute("class", o.cls); if (o.fill) e.style.fill = o.fill; e.textContent = str; return e;
+}
+function R(el, d = 0) { el.classList.add("r"); el.style.setProperty("--d", d + "ms"); return el; }
+function RS(el, d = 0) { el.classList.add("rs"); el.style.setProperty("--d", d + "ms"); return el; }
+function G(parent, cls, d) { const g = S("g", {}, parent); if (cls) { g.classList.add(cls); g.style.setProperty("--d", (d || 0) + "ms"); } return g; }
+function rng(seed) { let s = seed; return () => (s = (s * 16807) % 2147483647) / 2147483647; }
+function barPath(x, y, w, h, r, dir) { // rounded data-end, square baseline. dir: 'r' (grows right) or 'u' (grows up)
+  r = Math.min(r, w / 2, h / 2);
+  if (dir === "r") return `M${x} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + h - r}Q${x + w} ${y + h} ${x + w - r} ${y + h}H${x}Z`;
+  return `M${x} ${y + h}V${y + r}Q${x} ${y} ${x + r} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + h}Z`;
+}
+const fmtN = (v, d = 0) => v.toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+function tip(el, html) {
+  el.addEventListener("mousemove", (e) => { const t = $("tip"); t.innerHTML = html; t.style.display = "block"; t.style.left = Math.min(e.clientX + 14, innerWidth - 320) + "px"; t.style.top = (e.clientY + 14) + "px"; });
+  el.addEventListener("mouseleave", () => { $("tip").style.display = "none"; });
+}
+function defs(svg) {
+  const d = S("defs", {}, svg);
+  const m = S("marker", {id: "ah", markerUnits: "userSpaceOnUse", markerWidth: 13, markerHeight: 10, refX: 12, refY: 5, orient: "auto"}, d); S("path", {d: "M0 0L13 5L0 10z", fill: "#898781"}, m);
+}
+function arrow(parent, x1, y1, x2, y2, o = {}) {
+  const l = S("line", {x1, y1, x2, y2, stroke: o.color || "var(--muted)", "stroke-width": o.w || 3, "marker-end": "url(#ah)", "stroke-linecap": "round"}, parent);
+  if (o.dash) l.setAttribute("stroke-dasharray", o.dash); return l;
+}
+function cylinder(parent, x, y, w, h, color, label) { // database icon centred at (x, y)
+  const g = S("g", {}, parent), rx = w / 2, ry = h * 0.16;
+  S("path", {d: `M${x - rx} ${y - h / 2 + ry}V${y + h / 2 - ry}A${rx} ${ry} 0 0 0 ${x + rx} ${y + h / 2 - ry}V${y - h / 2 + ry}`, fill: "var(--card)", stroke: color, "stroke-width": 3}, g);
+  S("ellipse", {cx: x, cy: y - h / 2 + ry, rx, ry, fill: "var(--card)", stroke: color, "stroke-width": 3}, g);
+  S("path", {d: `M${x - rx} ${y} A${rx} ${ry} 0 0 0 ${x + rx} ${y}`, fill: "none", stroke: color, "stroke-width": 2, opacity: .5}, g);
+  if (label) T(g, x, y + h / 2 + 30, label, {size: 20, anchor: "middle", weight: 600});
+  return g;
+}
+function lock(parent, x, y, s = 1, color = "var(--text2)") {
+  const g = S("g", {transform: `translate(${x} ${y}) scale(${s})`}, parent);
+  S("rect", {x: -11, y: -2, width: 22, height: 17, rx: 3, fill: color}, g); S("path", {d: "M-7 -2V-8a7 7 0 0 1 14 0V-2", fill: "none", stroke: color, "stroke-width": 3}, g); return g;
+}
+function miniHist(parent, x, y, color = "var(--blue)", s = 1) { // little histogram icon, bottom-left at (x, y)
+  const g = S("g", {}, parent); [14, 26, 38, 22, 10].forEach((h, i) => S("rect", {x: x + i * 9 * s, y: y - h * s, width: 7 * s, height: h * s, rx: 1.5, fill: color}, g)); return g;
+}
+function rowsIcon(parent, x, y, color = "var(--muted)") { // few table rows
+  const g = S("g", {}, parent); for (let i = 0; i < 4; i++) S("rect", {x, y: y + i * 8, width: 34, height: 5, rx: 2, fill: color}, g); return g;
+}
+function title(svg, kicker, head) {
+  R(T(svg, 64, 56, kicker.toUpperCase(), {size: 15, weight: 700, cls: "tm"}), 0).setAttribute("letter-spacing", "2");
+  R(T(svg, 64, 104, head, {size: 40, weight: 700}), 80);
+}
+
+/* ---------- deck plumbing ---------- */
+const slides = [];
+function newSlide(name, build, enter) {
+  const sec = document.createElement("section"); sec.className = "slide"; sec.dataset.name = name;
+  const svg = S("svg", {viewBox: "0 0 1280 720", role: "img", "aria-label": name}); sec.appendChild(svg); defs(svg);
+  $("stage").appendChild(sec); build(svg, sec); slides.push({sec, svg, enter, name});
+}
+function countUp(root) {
+  root.querySelectorAll("[data-count]").forEach((el) => {
+    const to = parseFloat(el.dataset.count), dec = +(el.dataset.dec || 0), pre = el.dataset.pre || "", suf = el.dataset.suf || "", t0 = performance.now(), dur = 1300;
+    const step = (t) => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = pre + fmtN(to * e, dec) + suf; if (k < 1) requestAnimationFrame(step); };
+    el.textContent = pre + fmtN(0, dec) + suf; requestAnimationFrame(step);
+  });
+}
+function fit() { const k = Math.min(innerWidth / 1280, (innerHeight - 30) / 720); $("stage").style.transform = `translate(-50%,-50%) scale(${k})`; }
+let cur = -1;
+function go(i) {
+  i = Math.max(0, Math.min(slides.length - 1, i)); if (i === cur) return;
+  slides.forEach((s, k) => { s.sec.classList.toggle("active", k === i); s.sec.classList.toggle("past", k < i); });
+  cur = i; $("progress").style.width = ((i + 1) / slides.length * 100) + "%";
+  document.querySelectorAll("#dots button").forEach((b, k) => b.classList.toggle("on", k === i));
+  $("count").textContent = `${i + 1} / ${slides.length}`; history.replaceState(null, "", "#" + (i + 1));
+  const s = slides[i]; if (s.enter) s.enter(); countUp(s.sec);
+  /* safety net: if the browser is not advancing transitions (throttled/background tab), jump straight to the final state */
+  setTimeout(() => { if (cur === i && parseFloat(getComputedStyle(s.sec).opacity) < 0.05) document.body.classList.add("notrans"); }, 1800);
+}
+
+/* =====================================================================================================
+   INVESTOR PITCH SLIDES (uses the toolkit and deck plumbing from site_template.html)
+   Toy numbers are marked "example" on the slide; real results come from D (our saved evaluation).
+   ===================================================================================================== */
+(function () {
+const st = document.createElement("style");
+st.textContent = `.coin{transform:translate(var(--x0),var(--y0));transition:transform 1.3s cubic-bezier(.3,1.25,.5,1);transition-delay:var(--d,0ms)}
+.active .coin{transform:translate(var(--x1),var(--y1))}
+.fadeout{opacity:1;transition:opacity .6s ease 2.2s}.active .fadeout{opacity:0}
+.fadein{opacity:0;transition:opacity .7s ease;transition-delay:var(--d,0ms)}.active .fadein{opacity:1}`;
+document.head.appendChild(st);
+
+const chip = (g, x, y, w, txt, o = {}) => { const h = o.h || 38; S("rect", {x, y, width: w, height: h, rx: h / 2, fill: o.fill || "var(--card)", stroke: o.stroke || "var(--line)", "stroke-width": o.sw || 1}, g); return T(g, x + w / 2, y + h / 2 + 6, txt, {size: o.size || 17, anchor: "middle", weight: o.weight || 600, fill: o.color}); };
+function packet(parent, path, kind, dur, begin, color) {
+  const g = S("g", {}, parent);
+  if (kind === "hist") miniHist(g, -22, 14, color || "var(--aqua)", 1.1);
+  else if (kind === "rows") rowsIcon(g, -17, -16, color || "var(--muted)");
+  else if (kind === "rule") { S("rect", {x: -46, y: -15, width: 92, height: 30, rx: 8, fill: "var(--card)", stroke: color || "var(--blue)", "stroke-width": 2}, g); T(g, 0, 6, "≥ ₹25k", {size: 15, anchor: "middle", weight: 700}); }
+  else if (kind === "dot") S("circle", {r: 9, fill: color || "var(--amber)"}, g);
+  S("animateMotion", {dur: dur + "s", repeatCount: "indefinite", begin: begin + "s", path}, g); return g;
+}
+function bell(g, x, y, c = "var(--red)") { S("path", {d: `M${x - 18} ${y + 12}H${x + 18}L${x + 12} ${y + 4}V${y - 8}A12 12 0 0 0 ${x - 12} ${y - 8}V${y + 4}Z`, fill: c}, g); S("circle", {cx: x, cy: y + 18, r: 5, fill: c}, g); }
+function gear(g, x, y, r = 13, c = "var(--text2)") { S("circle", {cx: x, cy: y, r, fill: "none", stroke: c, "stroke-width": 5}, g); for (let a = 0; a < 8; a++) { const t = a * Math.PI / 4; S("line", {x1: x + Math.cos(t) * (r + 3), y1: y + Math.sin(t) * (r + 3), x2: x + Math.cos(t) * (r + 10), y2: y + Math.sin(t) * (r + 10), stroke: c, "stroke-width": 5, "stroke-linecap": "round"}, g); } }
+const BC = ["var(--blue)", "var(--orange)", "var(--aqua)"];
+const hub = (g, x, y, r = 56) => { S("circle", {cx: x, cy: y, r, fill: "var(--card)", stroke: "var(--text2)", "stroke-width": 4}, g); T(g, x, y + r * .38, "Σ", {size: r * 1.05, weight: 700, anchor: "middle"}); };
+
+/* P1 - title */
+newSlide("Title", (svg) => {
+  const hg = G(svg, "rs", 700); hub(hg, 930, 300, 66); S("circle", {cx: 930, cy: 300, r: 66, fill: "none", stroke: "var(--aqua)", "stroke-width": 3, class: "pulse", opacity: .6}, hg);
+  [[300, 580], [640, 610], [980, 580]].forEach(([x, y], i) => {
+    const g = G(svg, "rs", 300 + i * 200); cylinder(g, x, y, 96, 118, BC[i], "Bank " + BANKS[i]); lock(g, x + 56, y - 56, 1, BC[i]);
+    const p = `M${x} ${y - 70}L930 ${366}`; S("path", {d: p, fill: "none", stroke: "var(--line)", "stroke-width": 3, "stroke-dasharray": "3 8"}, svg);
+    const pk = G(svg, "r", 1200); packet(pk, p, "hist", 3.2, i * .9, "var(--aqua)");
+  });
+  R(T(svg, 64, 120, "Catch laundering across banks", {size: 56, weight: 800}), 200);
+  R(T(svg, 64, 188, "without sharing customer data", {size: 56, weight: 800, fill: "var(--blue)"}), 380);
+  R(T(svg, 64, 240, "FedAML  ·  pre-seed", {size: 22, cls: "t2"}), 560);
+});
+
+/* P2 - the problem: fraudsters hop between banks */
+newSlide("The problem", (svg) => {
+  title(svg, "The problem", "Fraudsters hop between banks");
+  const X = [120, 360, 640, 920, 1160], names = ["Source", "Bank A", "Bank B", "Bank C", "Cash out"], y = 330;
+  S("line", {x1: X[0] + 40, x2: X[4] - 40, y1: y, y2: y, stroke: "var(--line)", "stroke-width": 5, "stroke-linecap": "round"}, svg);
+  X.forEach((x, i) => {
+    const g = G(svg, "rs", 200 + i * 150);
+    if (i === 0 || i === 4) { S("circle", {cx: x, cy: y, r: 36, fill: "var(--card)", stroke: "var(--muted)", "stroke-width": 3}, g); T(g, x, y + 8, i ? "₹" : "?", {size: 30, weight: 800, anchor: "middle", cls: "t2"}); T(g, x, y + 66, names[i], {size: 18, anchor: "middle", cls: "t2"}); }
+    else { cylinder(g, x, y, 78, 96, BC[i - 1], null); T(g, x, y + 82, names[i], {size: 20, weight: 700, anchor: "middle"}); }
+  });
+  const tk = G(svg, "r", 1000); packet(tk, `M${X[0]} ${y}L${X[4]} ${y}`, "dot", 6, 0, "var(--red)");
+  /* what each bank can see: brackets under the chain */
+  [[0, 2, 450, "A sees"], [1, 3, 510, "B sees"], [2, 4, 570, "C sees"]].forEach(([a, b, by, lab], i) => {
+    const g = G(svg, "r", 1500 + i * 300), x1 = (X[a] + X[a + 1]) / 2 - (a === 0 ? 70 : 0) + (a === 0 ? 0 : 0), x1p = X[a + 0] + 20 - (a === 0 ? 0 : 0);
+    const xs = X[i] + 10, xe = X[i + 2] - 10;
+    S("path", {d: `M${xs} ${by - 18}V${by}H${xe}V${by - 18}`, fill: "none", stroke: BC[i], "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round"}, g);
+    T(g, (xs + xe) / 2, by + 28, lab, {size: 20, weight: 700, anchor: "middle"});
+  });
+  R(T(svg, 640, 668, "No bank sees the whole chain", {size: 22, weight: 600, anchor: "middle", cls: "t2"}), 2600);
+  const g = G(svg, "r", 2000); S("rect", {x: 830, y: 138, width: 380, height: 78, rx: 16, fill: "var(--card)", stroke: "var(--red)", "stroke-width": 2}, g);
+  const n = T(g, 960, 195, "", {size: 46, weight: 800, anchor: "end", fill: "var(--red)"}); n.dataset.count = 66; n.dataset.suf = "%";
+  T(g, 972, 170, "of laundering in our", {size: 15, cls: "t2"}); T(g, 972, 192, "test data crosses banks", {size: 15, cls: "t2"});
+});
+
+/* P3 - scale (sourced, press-reported) */
+newSlide("Scale", (svg) => {
+  title(svg, "Why it matters", "UPI is huge, and so is the abuse");
+  const tiles = [[24.07, 2, "B", "UPI payments a month", "Sep 2026", "phone"], [13.42, 2, " lakh", "UPI fraud cases", "FY24, ≈ ₹1,087 crore", "alert"], [51, 0, "%", "of victims never report", "LocalCircles survey", "eye"], [741, 0, "", "banks live on UPI", "PIB factsheet, Jul 2026", "bank"]];
+  tiles.forEach(([v, dec, suf, lab, sub, ic], i) => {
+    const x = 64 + i * 290, g = G(svg, "r", 200 + i * 220); S("rect", {x, y: 190, width: 268, height: 360, rx: 20, fill: "var(--card)", stroke: "var(--line)"}, g);
+    const cx = x + 134, cy = 276;
+    if (ic === "phone") { S("rect", {x: cx - 20, y: cy - 34, width: 40, height: 68, rx: 8, fill: "none", stroke: "var(--blue)", "stroke-width": 5}, g); S("circle", {cx, cy: cy + 24, r: 3.5, fill: "var(--blue)"}, g); S("path", {d: `M${cx - 8} ${cy - 6}L${cx + 2} ${cy - 16}L${cx + 2} ${cy + 4}`, fill: "none", stroke: "var(--blue)", "stroke-width": 4, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); }
+    if (ic === "alert") { S("path", {d: `M${cx} ${cy - 36}L${cx + 40} ${cy + 30}H${cx - 40}Z`, fill: "var(--red)"}, g); S("rect", {x: cx - 3.5, y: cy - 14, width: 7, height: 24, rx: 3, fill: "var(--card)"}, g); S("circle", {cx, cy: cy + 20, r: 4, fill: "var(--card)"}, g); }
+    if (ic === "eye") { S("path", {d: `M${cx - 40} ${cy}Q${cx} ${cy - 38} ${cx + 40} ${cy}Q${cx} ${cy + 38} ${cx - 40} ${cy}Z`, fill: "none", stroke: "var(--orange)", "stroke-width": 5}, g); S("circle", {cx, cy, r: 10, fill: "var(--orange)"}, g); S("line", {x1: cx - 36, y1: cy + 32, x2: cx + 36, y2: cy - 32, stroke: "var(--orange)", "stroke-width": 6, "stroke-linecap": "round"}, g); }
+    if (ic === "bank") { cylinder(g, cx - 18, cy, 44, 56, "var(--aqua)"); cylinder(g, cx + 22, cy + 8, 44, 56, "var(--aqua)"); }
+    const n = T(g, cx, 400, "", {size: 48, weight: 800, anchor: "middle"}); n.dataset.count = v; n.dataset.dec = dec; n.dataset.suf = suf;
+    const words = lab.split(" "), lines = []; let ln = ""; words.forEach((w) => { if ((ln + " " + w).trim().length > 21) { lines.push(ln.trim()); ln = w; } else ln += " " + w; }); lines.push(ln.trim());
+    lines.forEach((l, j) => T(g, cx, 440 + j * 26, l, {size: 20, weight: 600, anchor: "middle"}));
+    T(g, cx, 520, sub, {size: 14, anchor: "middle", cls: "tm"});
+  });
+  R(T(svg, 64, 600, "Press reports of NPCI, RBI and government data. Treat as approximate; verify against primary sources before external use.", {size: 14, cls: "tm"}), 1400);
+});
+
+/* P4 - why banks cannot simply pool the data */
+newSlide("Why not pool", (svg) => {
+  title(svg, "The obstacle", "Why not pool the data?");
+  const pool = G(svg, "rs", 900); cylinder(pool, 1010, 360, 150, 180, "var(--text2)", "One big pool");
+  [[230, 230], [230, 360], [230, 490]].forEach(([x, y], i) => {
+    const g = G(svg, "rs", 250 + i * 200); cylinder(g, x, y, 70, 88, BC[i], null); T(g, x + 74, y + 8, "Bank " + BANKS[i], {size: 22, weight: 700}); lock(g, x + 40, y - 36, .9, BC[i]);
+    const a = G(svg, "r", 800 + i * 200); arrow(a, x + 190, y, 915, 360 + (i - 1) * 34, {w: 3, dash: "6 6"});
+    const xg = G(svg, "rs", 1200 + i * 200), mx = 600 + 0, my = y + (360 - y) * .62; S("circle", {cx: 540, cy: my, r: 22, fill: "var(--red)"}, xg); S("path", {d: `M${540 - 9} ${my - 9}l18 18m0 -18l-18 18`, stroke: "#fff", "stroke-width": 4, "stroke-linecap": "round"}, xg);
+  });
+  [["Privacy law", 150], ["Competition", 360], ["Trust", 570]].forEach(([t, x], i) => { const g = G(svg, "r", 1800 + i * 250); chip(g, 190 + i * 230, 622, 200, t, {stroke: "var(--red)", sw: 2}); });
+});
+
+/* P5 - the idea in one picture */
+newSlide("The idea", (svg) => {
+  title(svg, "The idea", "Share what was learned, not the data");
+  const hg = G(svg, "rs", 700); hub(hg, 640, 380, 74); T(hg, 640, 482, "Joint model", {size: 20, weight: 700, anchor: "middle"});
+  [[190, 230], [190, 380], [190, 530]].forEach(([x, y], i) => {
+    const g = G(svg, "rs", 250 + i * 180); cylinder(g, x, y, 70, 88, BC[i], null); lock(g, x + 40, y - 36, .9, BC[i]); T(g, x, y + 66, "Bank " + BANKS[i], {size: 18, anchor: "middle", cls: "t2"});
+    const up = `M${x + 60} ${y - 8}L${560} ${380 + (i - 1) * 30}`, down = `M${700} ${392 + (i - 1) * 30}L${x + 60} ${y + 12}`;
+    S("path", {d: up, fill: "none", stroke: "var(--line)", "stroke-width": 3}, svg); S("path", {d: down, fill: "none", stroke: "var(--line)", "stroke-width": 3, "stroke-dasharray": "3 8"}, svg);
+    const pk = G(svg, "r", 1100); packet(pk, up, "hist", 3, i * .8, "var(--aqua)"); packet(pk, down, "rule", 3, 1.5 + i * .8, "var(--blue)");
+  });
+  [["Data stays home", 880, 250], ["Only summaries travel", 880, 330], ["Everyone gets the smarter model", 880, 410]].forEach(([t, x, y], i) => {
+    const g = G(svg, "r", 1500 + i * 300); S("circle", {cx: x - 20, cy: y + 19, r: 13, fill: "var(--good)"}, g); S("path", {d: `M${x - 26} ${y + 19}l5 6l9 -11`, fill: "none", stroke: "#fff", "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round"}, g);
+    T(g, x + 8, y + 26, t, {size: 22, weight: 600});
+  });
+});
+
+/* P6 - concept: history features, with Riya's account as the example */
+newSlide("History", (svg) => {
+  title(svg, "Concept 1", "A transaction's history");
+  R(T(svg, 1216, 62, "EXAMPLE", {size: 14, weight: 700, anchor: "end", cls: "tm"}), 100);
+  const ev = [[170, "10:02", "₹200", "Shop", 14, false], [370, "10:30", "₹150", "Shop", 12, false], [680, "11:10", "₹40,000", "New payee 1", 26, true], [860, "11:12", "₹40,000", "New payee 2", 26, true], [1040, "11:15", "₹39,500", "New payee 3", 26, true]], y = 330;
+  S("line", {x1: 90, x2: 1180, y1: y, y2: y, stroke: "var(--line)", "stroke-width": 5, "stroke-linecap": "round"}, svg);
+  R(T(svg, 520, y + 8, "⋯", {size: 34, anchor: "middle", cls: "tm"}), 400);
+  R(T(svg, 120, 196, "Riya's account", {size: 22, weight: 700}), 150);
+  ev.forEach(([x, t, a, who, r, hot], i) => {
+    const g = G(svg, "rs", 400 + i * 260); S("circle", {cx: x, cy: y, r, fill: hot ? "var(--red)" : "var(--muted)", stroke: "var(--bg)", "stroke-width": 3}, g);
+    T(g, x, y - r - 38, a, {size: 21, weight: 800, anchor: "middle"}); T(g, x, y - r - 14, who, {size: 15, anchor: "middle", cls: "t2"}); T(g, x, y + r + 28, t, {size: 17, anchor: "middle", cls: "tm"});
+  });
+  const br = G(svg, "r", 1800); S("path", {d: `M640 ${y + 70}V${y + 84}H1080V${y + 70}`, fill: "none", stroke: "var(--blue)", "stroke-width": 4, "stroke-linecap": "round"}, br); T(br, 860, y + 112, "last hour", {size: 18, weight: 700, anchor: "middle"});
+  [["3", "new payees", "var(--red)"], ["3", "payments", "var(--blue)"], ["≈ ₹40k", "same amount", "var(--orange)"]].forEach(([n, l, c], i) => {
+    const g = G(svg, "r", 2200 + i * 300), x = 160 + i * 330; S("rect", {x, y: 520, width: 290, height: 110, rx: 18, fill: "var(--card)", stroke: c, "stroke-width": 2.5}, g);
+    T(g, x + 145, 580, n, {size: 44, weight: 800, anchor: "middle"}); T(g, x + 145, 613, l, {size: 19, anchor: "middle", cls: "t2"});
+  });
+  R(T(svg, 640, 676, "These numbers become one row the model reads", {size: 19, anchor: "middle", weight: 600, cls: "t2"}), 3200);
+});
+
+/* P7 - concept: what a histogram is (coins fall into buckets) */
+newSlide("Histogram", (svg) => {
+  title(svg, "Concept 2", "A histogram is counts in buckets");
+  R(T(svg, 1216, 62, "EXAMPLE: 12 payments at one bank", {size: 14, weight: 700, anchor: "end", cls: "tm"}), 100);
+  const amt = [80, 120, 450, 900, 1500, 2200, 3800, 7500, 12000, 26000, 41000, 48000], fr = [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1];
+  const bk = (a) => a < 1000 ? 0 : a < 5000 ? 1 : a < 25000 ? 2 : 3, xc = [260, 520, 780, 1040], names = ["under ₹1k", "₹1k – 5k", "₹5k – 25k", "₹25k and up"], fmt = (a) => a >= 1000 ? "₹" + (a / 1000) + "k" : "₹" + a;
+  xc.forEach((x, b) => { R(S("rect", {x: x - 100, y: 350, width: 200, height: 250, rx: 16, fill: "var(--card)", stroke: "var(--line)", "stroke-width": 2}, svg), 150 + b * 80); R(T(svg, x, 634, names[b], {size: 20, weight: 700, anchor: "middle"}), 250 + b * 80); });
+  const used = [0, 0, 0, 0], counts = [0, 0, 0, 0], fcounts = [0, 0, 0, 0];
+  amt.forEach((a, i) => {
+    const b = bk(a), k = used[b]++; counts[b]++; fcounts[b] += fr[i];
+    const g = S("g", {class: "coin"}, svg); g.style.setProperty("--x0", (150 + i * 88) + "px"); g.style.setProperty("--y0", "190px"); g.style.setProperty("--x1", xc[b] + "px"); g.style.setProperty("--y1", (570 - k * 48) + "px"); g.style.setProperty("--d", 500 + i * 110 + "ms");
+    S("circle", {r: 21, fill: fr[i] ? "var(--red)" : "var(--blue)", stroke: "var(--bg)", "stroke-width": 3}, g);
+    const lab = T(svg, 150 + i * 88, 244, fmt(a), {size: 15, anchor: "middle", cls: "t2 fadeout"});
+    tip(g, `<b>${fmt(a)}</b> · ${fr[i] ? "fraud" : "normal"}`);
+  });
+  xc.forEach((x, b) => {
+    const g = G(svg, "fadein"); g.style.setProperty("--d", "2900ms");
+    T(g, x, 296, counts[b] + (counts[b] === 1 ? " payment" : " payments"), {size: 26, weight: 800, anchor: "middle"});
+    T(g, x, 328, fcounts[b] + " fraud", {size: 21, weight: 700, anchor: "middle", fill: fcounts[b] ? "var(--red)" : "var(--muted)"});
+  });
+  const lg = R(S("g", {}, svg), 200); S("circle", {cx: 90, cy: 160, r: 9, fill: "var(--blue)"}, lg); T(lg, 108, 166, "normal", {size: 16, cls: "t2"}); S("circle", {cx: 190, cy: 160, r: 9, fill: "var(--red)"}, lg); T(lg, 208, 166, "fraud", {size: 16, cls: "t2"});
+});
+
+/* P8 - concept: three banks, one histogram */
+newSlide("Combine", (svg) => {
+  title(svg, "Concept 3", "Add the banks' histograms");
+  R(T(svg, 1216, 62, "EXAMPLE numbers", {size: 14, weight: 700, anchor: "end", cls: "tm"}), 100);
+  const B = [["A", [40, 25, 10, 3], [0, 1, 2, 3]], ["B", [30, 18, 8, 2], [0, 0, 1, 1]], ["C", [20, 12, 5, 1], [0, 1, 1, 1]]], names = ["< ₹1k", "₹1k–5k", "₹5k–25k", "≥ ₹25k"];
+  const tot = [0, 1, 2, 3].map((j) => [B.reduce((s, b) => s + b[1][j], 0), B.reduce((s, b) => s + b[2][j], 0)]);
+  const cx0 = 214, cw = 104;
+  names.forEach((n, j) => R(T(svg, cx0 + j * cw + cw / 2, 150, n, {size: 14, anchor: "middle", cls: "tm"}), 150));
+  const row = (y, lab, c, nums, fr, d, big) => {
+    const g = G(svg, "r", d); S("rect", {x: 64, y, width: 600, height: 92, rx: 16, fill: "var(--card)", stroke: big ? "var(--text2)" : c, "stroke-width": big ? 3 : 2}, g);
+    T(g, 90, y + 56, lab, {size: 22, weight: 700});
+    nums.forEach((v, j) => { T(g, cx0 + j * cw + cw / 2, y + 48, v + "", {size: 30, weight: 800, anchor: "middle"}); T(g, cx0 + j * cw + cw / 2, y + 74, fr[j] + " fraud", {size: 15, anchor: "middle", weight: 600, fill: fr[j] ? "var(--red)" : "var(--muted)"}); });
+  };
+  B.forEach((b, i) => row(170 + i * 104, "Bank " + b[0], BC[i], b[1], b[2], 300 + i * 250));
+  R(T(svg, 364, 500, "+", {size: 54, weight: 300, anchor: "middle", cls: "t2"}), 1100);
+  row(530, "Total", "var(--text2)", tot.map((t) => t[0]), tot.map((t) => t[1]), 1300, true);
+  /* fraud rate chart */
+  const bx = 800, base = 560, top = 210, H = (v) => v / 100 * (base - top), rate = tot.map((t) => t[1] / t[0] * 100);
+  R(T(svg, 940, 170, "Share that is fraud", {size: 20, weight: 700, anchor: "middle"}), 1500);
+  S("line", {x1: bx - 10, x2: 1210, y1: base, y2: base, stroke: "var(--line)", "stroke-width": 2}, svg);
+  rate.forEach((r, j) => {
+    const x = bx + 12 + j * 100, hot = j === 3, bar = S("path", {d: barPath(x, base - H(r), 64, Math.max(H(r), 3), 4, "u"), fill: hot ? "var(--red)" : "var(--blue)", opacity: hot ? 1 : .55}, svg); bar.classList.add("growy"); bar.style.setProperty("--d", 1700 + j * 200 + "ms");
+    R(T(svg, x + 32, base - H(r) - 12, r.toFixed(r < 10 ? 1 : 0) + "%", {size: 22, weight: 800, anchor: "middle"}), 2000 + j * 200); R(T(svg, x + 32, base + 28, names[j], {size: 14, anchor: "middle", cls: "tm"}), 1700);
+    tip(bar, `<b>${names[j]}</b>: ${tot[j][1]} fraud of ${tot[j][0]} payments`);
+  });
+  const hl = G(svg, "r", 3000); S("rect", {x: 1086 - 8, y: 205, width: 100, height: 360, rx: 14, fill: "none", stroke: "var(--red)", "stroke-width": 3, "stroke-dasharray": "6 6"}, hl);
+});
+
+/* P9 - concept: the server picks a rule */
+newSlide("The rule", (svg) => {
+  title(svg, "Concept 4", "The server picks a rule");
+  R(T(svg, 1216, 62, "EXAMPLE", {size: 14, weight: 700, anchor: "end", cls: "tm"}), 100);
+  const root = G(svg, "rs", 400); S("rect", {x: 60, y: 170, width: 320, height: 76, rx: 16, fill: "var(--card)", stroke: "var(--blue)", "stroke-width": 3}, root); T(root, 220, 218, "Payment ≥ ₹25,000 ?", {size: 25, weight: 800, anchor: "middle"});
+  [[40, "No", "168 payments", "6 fraud", "3.6%", "var(--aqua)"], [330, "Yes", "6 payments", "5 fraud", "83%", "var(--red)"]].forEach(([x, yn, a, b, p, c], i) => {
+    const g = G(svg, "r", 1000 + i * 400); S("path", {d: `M220 248L${x + 120} 330`, stroke: "var(--muted)", "stroke-width": 3, fill: "none", pathLength: 1, class: "draw"}, g);
+    S("rect", {x, y: 330, width: 240, height: 190, rx: 18, fill: "var(--card)", stroke: c, "stroke-width": 3}, g); T(g, x + 22, 366, yn, {size: 22, weight: 800}); T(g, x + 120, 438, p, {size: 54, weight: 800, anchor: "middle"}); T(g, x + 120, 470, "fraud", {size: 18, anchor: "middle", cls: "t2"}); T(g, x + 120, 502, a + " · " + b, {size: 15, anchor: "middle", cls: "tm"});
+  });
+  R(T(svg, 300, 590, "Chosen from the added-up histograms", {size: 20, anchor: "middle", weight: 600, cls: "t2"}), 2000);
+  [[900, 190], [900, 330], [900, 470]].forEach(([x, y], i) => {
+    const g = G(svg, "rs", 1500 + i * 250); cylinder(g, x, y, 62, 78, BC[i], null); T(g, x + 52, y - 6, "Bank " + BANKS[i], {size: 20, weight: 700}); T(g, x + 52, y + 18, "applies it to its", {size: 14, cls: "tm"}); T(g, x + 52, y + 36, "own payments", {size: 14, cls: "tm"});
+    const p = `M380 208L${x - 50} ${y}`; S("path", {d: p, fill: "none", stroke: "var(--line)", "stroke-width": 3, "stroke-dasharray": "3 8"}, svg);
+    const pk = G(svg, "r", 2300); packet(pk, p, "rule", 3.2, i * .9, "var(--blue)");
+  });
+});
+
+/* P10 - what goes where */
+newSlide("What goes where", (svg) => {
+  title(svg, "Concept 5", "What goes where");
+  const L = G(svg, "r", 200); S("rect", {x: 64, y: 150, width: 360, height: 490, rx: 22, fill: "var(--card)", stroke: "var(--aqua)", "stroke-width": 3}, L); cylinder(L, 244, 250, 80, 100, "var(--aqua)", "Inside the bank"); lock(L, 296, 205, 1.1, "var(--aqua)");
+  ["Names", "Account numbers", "Every payment", "Fraud labels"].forEach((t, i) => { const y = 380 + i * 54; chip(L, 100, y, 288, t, {size: 18, h: 40}); lock(L, 120, y + 12, .55, "var(--aqua)"); });
+  T(L, 244, 612, "never leave", {size: 17, anchor: "middle", cls: "t2"});
+  const Rr = G(svg, "r", 500); S("rect", {x: 856, y: 150, width: 360, height: 490, rx: 22, fill: "var(--card)", stroke: "var(--text2)", "stroke-width": 3}, Rr); hub(Rr, 1036, 280, 56); T(Rr, 1036, 380, "Coordinator", {size: 22, weight: 700, anchor: "middle"});
+  T(Rr, 1036, 430, "sees only totals", {size: 18, anchor: "middle", cls: "t2"});
+  [["90", "55", "23", "6"]].forEach((a) => a.forEach((v, j) => { const x = 936 + j * 60; S("rect", {x: x - 24, y: 470, width: 48, height: 48, rx: 10, fill: "var(--bg)", stroke: "var(--line)"}, Rr); T(Rr, x, 503, v, {size: 20, weight: 800, anchor: "middle"}); }));
+  /* arrows */
+  const up = G(svg, "r", 900); arrow(up, 440, 320, 840, 320, {w: 4}); miniHist(up, 600, 268, "var(--aqua)", 1.5); T(up, 640, 196, "Bucket totals", {size: 22, weight: 700, anchor: "middle"}); T(up, 640, 372, "[ 90 · 55 · 23 · 6 ]", {size: 18, anchor: "middle", cls: "t2"});
+  const dn = G(svg, "r", 1300); arrow(dn, 840, 560, 440, 560, {w: 4}); T(dn, 640, 446, "The rule", {size: 22, weight: 700, anchor: "middle"}); S("rect", {x: 560, y: 462, width: 160, height: 44, rx: 10, fill: "var(--card)", stroke: "var(--blue)", "stroke-width": 2.5}, dn); T(dn, 640, 491, "≥ ₹25,000", {size: 20, weight: 700, anchor: "middle"});
+  const pk = G(svg, "r", 1700); packet(pk, "M440 320L840 320", "hist", 3, 0, "var(--aqua)"); packet(pk, "M840 560L440 560", "rule", 3, 1.5, "var(--blue)");
+});
+
+/* P11 - concept: is a histogram safe? */
+newSlide("Privacy", (svg) => {
+  title(svg, "Concept 6", "Is a histogram safe?");
+  const warn = R(S("g", {}, svg), 150); S("rect", {x: 64, y: 140, width: 1152, height: 90, rx: 18, fill: "var(--card)", stroke: "var(--amber)", "stroke-width": 2.5}, warn);
+  [[130, 80, "var(--blue)"], [180, 80, "var(--blue)"], [230, 80, "var(--red)"]].forEach(([x], i) => S("rect", {x: 100 + i * 46, y: 198 - [20, 42, 12][i], width: 34, height: [20, 42, 12][i], rx: 4, fill: i === 2 ? "var(--red)" : "var(--blue)"}, warn));
+  T(warn, 270, 192, "A bucket holding one payment points straight at it", {size: 24, weight: 700});
+  chip(warn, 1020, 168, 170, "Prototype: plain sums", {h: 34, size: 15, stroke: "var(--amber)", sw: 2});
+  [["Sealed sum", "seal"], ["Skip tiny buckets", "tiny"], ["Add a little noise", "noise"]].forEach(([t, k], i) => {
+    const x = 64 + i * 392, g = G(svg, "r", 500 + i * 350); S("rect", {x, y: 270, width: 368, height: 330, rx: 20, fill: "var(--card)", stroke: "var(--line)"}, g);
+    const cx = x + 184;
+    if (k === "seal") { [0, 1, 2].forEach((j) => { S("rect", {x: x + 40, y: 320 + j * 46, width: 70, height: 36, rx: 6, fill: "none", stroke: BC[j], "stroke-width": 3}, g); S("path", {d: `M${x + 40} ${320 + j * 46}L${x + 75} ${344 + j * 46}L${x + 110} ${320 + j * 46}`, fill: "none", stroke: BC[j], "stroke-width": 3}, g); arrow(g, x + 122, 338 + j * 46, x + 224, 384, {w: 2.5}); }); S("circle", {cx: x + 270, cy: 384, r: 40, fill: "none", stroke: "var(--text2)", "stroke-width": 4}, g); T(g, x + 270, 402, "Σ", {size: 48, weight: 700, anchor: "middle"}); }
+    if (k === "tiny") { [60, 110, 30].forEach((h, j) => S("rect", {x: cx - 100 + j * 70, y: 470 - h, width: 50, height: h, rx: 4, fill: "var(--blue)", opacity: j === 2 ? .35 : 1}, g)); S("line", {x1: cx - 6, y1: 380, x2: cx + 90, y2: 470, stroke: "var(--red)", "stroke-width": 6, "stroke-linecap": "round"}, g); S("line", {x1: cx + 90, y1: 380, x2: cx - 6, y2: 470, stroke: "var(--red)", "stroke-width": 6, "stroke-linecap": "round"}, g); }
+    if (k === "noise") { [64, 112, 40].forEach((h, j) => { S("rect", {x: cx - 100 + j * 70, y: 470 - h, width: 50, height: h, rx: 4, fill: "var(--blue)", opacity: .35}, g); S("rect", {x: cx - 100 + j * 70, y: 470 - h + [6, -5, 4][j], width: 50, height: h - [6, -5, 4][j], rx: 4, fill: "none", stroke: "var(--blue)", "stroke-width": 3, "stroke-dasharray": "5 4"}, g); }); }
+    T(g, cx, 540, t, {size: 24, weight: 700, anchor: "middle"}); chip(g, cx - 56, 556, 112, "planned", {h: 28, size: 14, stroke: "var(--amber)"});
+  });
+});
+
+/* P12 - concept: catching the ones already sent */
+newSlide("Look back", (svg) => {
+  title(svg, "Concept 7", "Alerts reach back in time");
+  R(T(svg, 1216, 62, "EXAMPLE: Riya's account", {size: 14, weight: 700, anchor: "end", cls: "tm"}), 100);
+  const y = 360, ev = [[130, "10:02"], [330, "10:30"], [640, "11:10"], [840, "11:12"], [1040, "11:15"]];
+  S("line", {x1: 90, x2: 1190, y1: y, y2: y, stroke: "var(--line)", "stroke-width": 5, "stroke-linecap": "round"}, svg);
+  ev.forEach(([x, t], i) => {
+    const g = G(svg, "rs", 300 + i * 220), hot = i === 4, late = i >= 2 && i < 4; S("circle", {cx: x, cy: y, r: hot ? 24 : 18, fill: hot ? "var(--red)" : late ? "var(--muted)" : "var(--muted)", stroke: "var(--bg)", "stroke-width": 3}, g); if (hot) S("circle", {cx: x, cy: y, r: 24, fill: "none", stroke: "var(--red)", "stroke-width": 3, class: "pulse", opacity: .6}, g);
+    T(g, x, y + 58, t, {size: 18, anchor: "middle", cls: "tm"});
+    if (late) { const f = S("circle", {cx: x, cy: y, r: 18, fill: "var(--amber)"}, svg); f.classList.add("fadein"); f.style.setProperty("--d", 3000 + (i - 2) * 400 + "ms"); }
+  });
+  const bell1 = G(svg, "rs", 1500); bell(bell1, 1040, 250); T(bell1, 1040, 300, "Alert", {size: 20, weight: 700, anchor: "middle"});
+  const arc = S("path", {d: "M1030 322Q930 180 650 322", fill: "none", stroke: "var(--aqua)", "stroke-width": 5, "stroke-linecap": "round", "marker-end": "url(#ah)", pathLength: 1, class: "draw"}, svg); arc.style.setProperty("--d", "2200ms");
+  R(T(svg, 840, 226, "look back 6 hours", {size: 20, weight: 700, anchor: "middle"}), 2400);
+  [[["Alone: ", "1 of 3 caught"], 150, "var(--red)"], [["With look-back: ", "3 of 3 caught"], 560, "var(--aqua)"]].forEach(([t, x, c], i) => { const g = G(svg, "r", 3400 + i * 500); S("rect", {x, y: 520, width: 380, height: 90, rx: 18, fill: "var(--card)", stroke: c, "stroke-width": 3}, g); T(g, x + 190, 556, t[0].replace(": ", ""), {size: 19, anchor: "middle", cls: "t2"}); T(g, x + 190, 592, t[1], {size: 28, weight: 800, anchor: "middle"}); });
+  const lg = R(S("g", {}, svg), 3000); S("circle", {cx: 880, cy: 470, r: 8, fill: "var(--amber)"}, lg); T(lg, 896, 476, "flagged after the fact", {size: 16, cls: "t2"});
+});
+
+/* P13 - evidence from our experiment */
+newSlide("Evidence", (svg) => {
+  title(svg, "Evidence", "Does it work?");
+  R(T(svg, 1216, 62, "Our synthetic 3-bank UPI test", {size: 14, weight: 700, anchor: "end", cls: "tm"}), 100);
+  const base = 600, top = 210, H = (v) => v / 0.7 * (base - top), items = [["Each bank alone", F.ap_local, "var(--orange)"], ["Federated", F.ap_fed, "var(--aqua)"], ["All data pooled", F.ap_bench, "var(--blue)"]];
+  S("line", {x1: 90, x2: 760, y1: base, y2: base, stroke: "var(--line)", "stroke-width": 2}, svg);
+  R(T(svg, 90, 176, "How well alerts rank true laundering (PR-AUC)", {size: 17, cls: "t2"}), 200);
+  items.forEach(([l, v, c], i) => {
+    const x = 130 + i * 210, bar = S("path", {d: barPath(x, base - H(v), 120, H(v), 4, "u"), fill: c}, svg); bar.classList.add("growy"); bar.style.setProperty("--d", 400 + i * 350 + "ms");
+    R(T(svg, x + 60, base - H(v) - 14, v.toFixed(3), {size: 26, weight: 800, anchor: "middle"}), 1000 + i * 350); R(T(svg, x + 60, base + 30, l, {size: 18, weight: 600, anchor: "middle"}), 500 + i * 300);
+    tip(bar, `<b>${l}</b><br>PR-AUC ${v.toFixed(3)}`);
+  });
+  const g = G(svg, "rs", 2200); S("rect", {x: 232, y: 214, width: 112, height: 54, rx: 27, fill: "var(--card)", stroke: "var(--aqua)", "stroke-width": 3}, g); const n = T(g, 288, 252, "", {size: 28, weight: 800, anchor: "middle"}); n.dataset.count = F.ap_gain * 100; n.dataset.pre = "+"; n.dataset.suf = "%";
+  const b = ROWS["Local-only, each bank alone"].bank[1], f = ROWS["Federated histogram-GBDT (3 banks)"].bank[1];
+  const c = G(svg, "r", 2800); S("rect", {x: 830, y: 210, width: 386, height: 390, rx: 20, fill: "var(--card)", stroke: "var(--line)"}, c);
+  T(c, 1023, 256, "The smallest-data bank, B", {size: 20, weight: 700, anchor: "middle"}); T(c, 1023, 284, "gets the biggest lift", {size: 17, anchor: "middle", cls: "t2"});
+  [[b, "var(--orange)", 920, "Alone"], [f, "var(--aqua)", 1050, "Federated"]].forEach(([v, col, x, l]) => { const h = v / 60 * 200, bb = S("path", {d: barPath(x - 30, 560 - h, 80, h, 4, "u"), fill: col}, c); T(c, x + 10, 560 - h - 10, v.toFixed(1), {size: 24, weight: 800, anchor: "middle"}); T(c, x + 10, 586, l, {size: 16, anchor: "middle", cls: "t2"}); });
+  const ch = G(svg, "rs", 3300); chip(ch, 1052, 296, 76, "+" + Math.round((f / b - 1) * 100) + "%", {h: 36, size: 19, stroke: "var(--aqua)", sw: 3});
+});
+
+/* P14 - honest limits */
+newSlide("Honest limits", (svg) => {
+  title(svg, "Be straight about it", "What we have not shown yet");
+  const C = [["Synthetic data", "flask", "var(--orange)"], ["Only two days", "cal", "var(--orange)"], ["Privacy layer not built", "lock", "var(--amber)"], ["Bank C got slightly worse", "down", "var(--amber)"]];
+  C.forEach(([t, k, col], i) => {
+    const x = 64 + i * 290, g = G(svg, "r", 200 + i * 250); S("rect", {x, y: 190, width: 268, height: 330, rx: 20, fill: "var(--card)", stroke: col, "stroke-width": 2.5}, g); const cx = x + 134, cy = 300;
+    if (k === "flask") S("path", {d: `M${cx - 22} ${cy - 50}H${cx + 22}M${cx - 14} ${cy - 50}V${cy - 10}L${cx - 44} ${cy + 44}Q${cx - 48} ${cy + 54} ${cx - 36} ${cy + 54}H${cx + 36}Q${cx + 48} ${cy + 54} ${cx + 44} ${cy + 44}L${cx + 14} ${cy - 10}V${cy - 50}`, fill: "none", stroke: col, "stroke-width": 6, "stroke-linejoin": "round", "stroke-linecap": "round"}, g);
+    if (k === "cal") { S("rect", {x: cx - 44, y: cy - 38, width: 88, height: 84, rx: 10, fill: "none", stroke: col, "stroke-width": 6}, g); S("line", {x1: cx - 44, y1: cy - 12, x2: cx + 44, y2: cy - 12, stroke: col, "stroke-width": 6}, g); [-24, 24].forEach((dx) => S("line", {x1: cx + dx, y1: cy - 50, x2: cx + dx, y2: cy - 28, stroke: col, "stroke-width": 6, "stroke-linecap": "round"}, g)); T(g, cx, cy + 36, "2", {size: 40, weight: 800, anchor: "middle"}); }
+    if (k === "lock") { S("rect", {x: cx - 30, y: cy - 8, width: 60, height: 50, rx: 8, fill: col}, g); S("path", {d: `M${cx - 18} ${cy - 8}V${cy - 28}a18 18 0 0 1 36 0`, fill: "none", stroke: col, "stroke-width": 7, "stroke-linecap": "round"}, g); }
+    if (k === "down") { S("path", {d: `M${cx - 40} ${cy - 30}L${cx} ${cy + 40}L${cx + 40} ${cy - 30}Z`, fill: col}, g); }
+    const words = t.split(" "), lines = []; let ln = ""; words.forEach((w) => { if ((ln + " " + w).trim().length > 15) { lines.push(ln.trim()); ln = w; } else ln += " " + w; }); lines.push(ln.trim());
+    lines.forEach((l, j) => T(g, cx, 420 + j * 34, l, {size: 25, weight: 700, anchor: "middle"}));
+  });
+  R(T(svg, 640, 600, "Next step: a real-data pilot", {size: 28, weight: 800, anchor: "middle"}), 1500);
+});
+
+/* =====================================================================================================
+   INVESTOR-READY TAIL: product, why now, market sketch, business model, competition, roadmap, use of funds,
+   team, risks, the ask, close. Facts about the founder live in FOUNDER; nothing about the team is invented.
+   ===================================================================================================== */
+const FOUNDER = {name: "", line: "ML / research background", contact: ""};   // set name / contact to show them on the team and closing slides
+const wrap = (t, n) => { const w = t.split(" "), L = []; let l = ""; w.forEach((x) => { if ((l + " " + x).trim().length > n) { L.push(l.trim()); l = x; } else l += " " + x; }); L.push(l.trim()); return L; };
+
+/* P15 - product shape */
+newSlide("Product", (svg) => {
+  title(svg, "The product", "How it would work");
+  const bank = G(svg, "rs", 300); S("rect", {x: 64, y: 160, width: 330, height: 280, rx: 22, fill: "var(--card)", stroke: "var(--aqua)", "stroke-width": 3}, bank); cylinder(bank, 164, 280, 70, 90, "var(--aqua)", null); gear(bank, 290, 270, 14, "var(--aqua)"); T(bank, 229, 410, "Bank agent", {size: 24, weight: 700, anchor: "middle"}); T(bank, 229, 470, "runs inside the bank", {size: 16, anchor: "middle", cls: "t2"});
+  const co = G(svg, "rs", 600); S("rect", {x: 475, y: 160, width: 330, height: 280, rx: 22, fill: "var(--card)", stroke: "var(--text2)", "stroke-width": 3}, co); hub(co, 640, 280, 56); T(co, 640, 410, "Neutral coordinator", {size: 24, weight: 700, anchor: "middle"});
+  const al = G(svg, "rs", 900); S("rect", {x: 886, y: 160, width: 330, height: 280, rx: 22, fill: "var(--card)", stroke: "var(--red)", "stroke-width": 3}, al); bell(al, 1051, 262, "var(--red)"); T(al, 1051, 410, "Alerts for the bank's team", {size: 22, weight: 700, anchor: "middle"});
+  [[394, 475], [805, 886]].forEach(([a, b], i) => { const g = G(svg, "r", 1100 + i * 300); arrow(g, a + 6, 300, b - 6, 300, {w: 4}); });
+  const pk = G(svg, "r", 1500); packet(pk, "M400 300L470 300", "hist", 2, 0, "var(--aqua)");
+  [["Raw data stays inside", "var(--aqua)"], ["Alerts into the bank's own queue (planned)", "var(--amber)"], ["One annual licence per bank", "var(--blue)"]].forEach(([t, c], i) => { const g = G(svg, "r", 1800 + i * 250); chip(g, 64 + i * 390, 520, 366, t, {stroke: c, sw: 2.5, h: 50, size: 18}); });
+});
+
+/* P16 - why now */
+newSlide("Why now", (svg) => {
+  title(svg, "Timing", "Why now");
+  const C = [["UPI is at huge scale", "24 billion payments a month", "phone", "var(--blue)"], ["Regulator is pushing AI", "against mule accounts: 26 banks (reported)", "shield", "var(--orange)"], ["The technique is proven", "federated pilots: Swift with 13 banks", "fed", "var(--aqua)"]];
+  C.forEach(([a, b, k, c], i) => {
+    const x = 64 + i * 390, g = G(svg, "r", 200 + i * 300), cx = x + 184, cy = 300; S("rect", {x, y: 170, width: 368, height: 380, rx: 22, fill: "var(--card)", stroke: c, "stroke-width": 3}, g);
+    if (k === "phone") { S("rect", {x: cx - 24, y: cy - 44, width: 48, height: 84, rx: 10, fill: "none", stroke: c, "stroke-width": 6}, g); S("circle", {cx, cy: cy + 28, r: 4, fill: c}, g); S("path", {d: `M${cx - 10} ${cy - 6}L${cx + 3} ${cy - 20}L${cx + 3} ${cy + 6}`, fill: "none", stroke: c, "stroke-width": 5, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); }
+    if (k === "shield") { S("path", {d: `M${cx} ${cy - 50}L${cx + 44} ${cy - 30}V${cy + 6}Q${cx + 44} ${cy + 42} ${cx} ${cy + 58}Q${cx - 44} ${cy + 42} ${cx - 44} ${cy + 6}V${cy - 30}Z`, fill: "none", stroke: c, "stroke-width": 7, "stroke-linejoin": "round"}, g); S("path", {d: `M${cx - 16} ${cy + 4}l12 12l22 -26`, fill: "none", stroke: c, "stroke-width": 7, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); }
+    if (k === "fed") { [[-46, 30], [0, -34], [46, 30]].forEach(([dx, dy]) => { S("circle", {cx: cx + dx, cy: cy + dy, r: 13, fill: c}, g); S("line", {x1: cx + dx, y1: cy + dy, x2: cx, y2: cy + 6, stroke: c, "stroke-width": 4}, g); }); S("circle", {cx, cy: cy + 6, r: 20, fill: "var(--card)", stroke: "var(--text2)", "stroke-width": 4}, g); T(g, cx, cy + 18, "Σ", {size: 30, weight: 700, anchor: "middle"}); }
+    wrap(a, 20).forEach((l, j) => T(g, cx, 410 + j * 34, l, {size: 27, weight: 800, anchor: "middle"}));
+    wrap(b, 28).forEach((l, j) => T(g, cx, 478 + j * 24, l, {size: 17, anchor: "middle", cls: "t2"}));
+  });
+  R(T(svg, 64, 600, "Figures are press-reported (NPCI, RBI Innovation Hub, Swift); sources in the speaker notes.", {size: 14, cls: "tm"}), 1400);
+});
+
+/* P17 - market sketch (illustrative, assumption-driven) */
+newSlide("Market", (svg) => {
+  title(svg, "Market", "A sketch of the size");
+  chip(R(S("g", {}, svg), 100), 1010, 40, 206, "ILLUSTRATIVE", {h: 34, size: 14, stroke: "var(--amber)", sw: 2});
+  const t = G(svg, "r", 200); S("rect", {x: 64, y: 190, width: 300, height: 200, rx: 20, fill: "var(--card)", stroke: "var(--line)"}, t);
+  const n = T(t, 214, 300, "", {size: 80, weight: 800, anchor: "middle"}); n.dataset.count = 741; T(t, 214, 340, "banks live on UPI", {size: 21, weight: 600, anchor: "middle"}); T(t, 214, 368, "PIB factsheet, Jul 2026", {size: 14, anchor: "middle", cls: "tm"});
+  const share = [0.05, 0.10, 0.20], price = [0.25, 0.75, 2.0], plabel = ["₹25 lakh", "₹75 lakh", "₹2 crore"], x0 = 590, y0 = 200, cw = 208, ch = 108;
+  R(T(svg, x0 + cw * 1.5, 190, "price per bank, per year", {size: 15, anchor: "middle", cls: "tm"}), 300);
+  price.forEach((p, j) => R(T(svg, x0 + cw * (j + .5), 222, plabel[j], {size: 20, weight: 700, anchor: "middle"}), 300));
+  R(T(svg, 490, 222, "adoption", {size: 15, anchor: "middle", cls: "tm"}), 300);
+  const vals = [];
+  share.forEach((sh, i) => {
+    const banks = Math.round(741 * sh), g = G(svg, "r", 400 + i * 120); T(g, 490, y0 + 66 + i * (ch + 10), Math.round(sh * 100) + "% of banks", {size: 20, weight: 700, anchor: "middle"}); T(g, 490, y0 + 90 + i * (ch + 10), banks + " banks", {size: 15, anchor: "middle", cls: "tm"});
+    price.forEach((p, j) => {
+      const v = banks * p; vals.push(v); const cg = G(svg, "rs", 700 + (i * 3 + j) * 110), x = x0 + cw * j + 6, y = y0 + 40 + i * (ch + 10);
+      S("rect", {x, y: y - 14, width: cw - 12, height: ch, rx: 14, fill: "var(--blue)", "fill-opacity": 0.1 + 0.4 * v / 296, stroke: "var(--line)"}, cg);
+      T(cg, x + (cw - 12) / 2, y + 44, "₹" + Math.round(v) + " Cr", {size: 32, weight: 800, anchor: "middle"}); tip(cg, `<b>${banks} banks × ${plabel[j]}</b><br>≈ ₹${v.toFixed(1)} crore a year`);
+    });
+  });
+  const ring = G(svg, "r", 2000); S("rect", {x: x0 + cw + 2, y: y0 + 40 + 1 * (ch + 10) - 18, width: cw - 4, height: ch + 8, rx: 16, fill: "none", stroke: "var(--blue)", "stroke-width": 4}, ring); chip(ring, x0 + cw + 48, y0 + 40 + 1 * (ch + 10) - 34, 112, "mid case", {h: 28, size: 14, stroke: "var(--blue)", sw: 2});
+  R(T(svg, 64, 668, "Assumptions, not validated: adoption and price are guesses, and many UPI banks are small or cooperative. India is the first market only.", {size: 14, cls: "tm"}), 2300);
+});
+
+/* P18 - business model: annual licence + a network effect */
+newSlide("Business model", (svg) => {
+  title(svg, "Business model", "Each bank that joins makes it better");
+  const N = [[420, 260, "More banks join", "banks"], [800, 260, "Fuller picture of rings", "net"], [800, 550, "Better alerts for all", "bell"], [420, 550, "More value per bank", "rupee"]], path = "M420 260H800V550H420Z";
+  S("path", {d: path, fill: "none", stroke: "var(--line)", "stroke-width": 4, "stroke-dasharray": "3 10", "stroke-linecap": "round"}, svg);
+  const tok = RS(S("g", {}, svg), 900); const c = S("circle", {r: 11, fill: "var(--blue)"}, tok); S("animateMotion", {dur: "8s", repeatCount: "indefinite", path}, c);
+  N.forEach(([x, y, lab, ic], i) => {
+    const g = G(svg, "rs", 250 + i * 200); S("circle", {cx: x, cy: y, r: 70, fill: "var(--card)", stroke: BC[i % 3], "stroke-width": 4}, g);
+    if (ic === "banks") { cylinder(g, x - 20, y - 4, 32, 40, BC[0], null); cylinder(g, x + 18, y + 6, 32, 40, BC[2], null); }
+    if (ic === "net") { [[-24, 14], [0, -22], [24, 14]].forEach(([dx, dy]) => S("circle", {cx: x + dx, cy: y + dy, r: 9, fill: "var(--blue)"}, g)); [[-24, 14, 0, -22], [0, -22, 24, 14], [-24, 14, 24, 14]].forEach(([a, b, cc, d]) => S("line", {x1: x + a, y1: y + b, x2: x + cc, y2: y + d, stroke: "var(--blue)", "stroke-width": 3.5}, g)); }
+    if (ic === "bell") bell(g, x, y - 8, "var(--red)");
+    if (ic === "rupee") T(g, x, y + 20, "₹", {size: 62, weight: 800, anchor: "middle"});
+    T(g, x, y + (y < 300 ? -88 : 108), lab, {size: 21, weight: 700, anchor: "middle"});
+  });
+  const k = G(svg, "r", 1500); S("rect", {x: 980, y: 180, width: 240, height: 380, rx: 18, fill: "var(--card)", stroke: "var(--blue)", "stroke-width": 3}, k);
+  T(k, 1100, 240, "Annual licence", {size: 24, weight: 800, anchor: "middle"}); T(k, 1100, 272, "per bank", {size: 19, anchor: "middle", cls: "t2"});
+  ["Pilot", "Licence", "Consortium"].forEach((t, i) => { const y = 340 + i * 70; S("circle", {cx: 1030, cy: y, r: 14, fill: BC[i]}, k); T(k, 1030, y + 6, String(i + 1), {size: 16, weight: 800, anchor: "middle", fill: "#fff"}); T(k, 1058, y + 7, t, {size: 20, weight: 600}); if (i < 2) S("line", {x1: 1030, y1: y + 16, x2: 1030, y2: y + 54, stroke: "var(--line)", "stroke-width": 3}, k); });
+});
+
+/* P19 - competition: others prove the category; our wedge is UPI */
+newSlide("Competition", (svg) => {
+  title(svg, "Competition", "Others prove the category");
+  const C = [["Consilient", "Federated ML for AML", "bank trials reported"], ["Swift", "Federated + privacy tech", "pilots with 13 banks, cross-border"], ["RBI Innovation Hub", "MuleHunter.AI", "mule detection, 26 banks (reported)"], ["Each bank alone", "Today's default", "one bank's view only"]];
+  C.forEach(([a, b, c], i) => {
+    const x = 64 + i * 290, g = G(svg, "r", 200 + i * 220); S("rect", {x, y: 170, width: 268, height: 240, rx: 20, fill: "var(--card)", stroke: i === 3 ? "var(--orange)" : "var(--line)", "stroke-width": i === 3 ? 2.5 : 1.5}, g);
+    T(g, x + 134, 232, a, {size: 25, weight: 800, anchor: "middle"}); T(g, x + 134, 276, b, {size: 18, weight: 600, anchor: "middle", cls: "t2"});
+    wrap(c, 24).forEach((l, j) => T(g, x + 134, 332 + j * 24, l, {size: 16, anchor: "middle", cls: "tm"}));
+  });
+  const w = G(svg, "r", 1400); S("rect", {x: 64, y: 450, width: 1152, height: 150, rx: 22, fill: "var(--card)", stroke: "var(--aqua)", "stroke-width": 3.5}, w);
+  T(w, 100, 500, "Our wedge", {size: 24, weight: 800}); [["UPI-scale retail payments", 100], ["Cross-bank mule rings", 440], ["Built for Indian banks", 760]].forEach(([t, x], i) => { S("circle", {cx: x + 12, cy: 551, r: 12, fill: "var(--good)"}, w); S("path", {d: `M${x + 6} 551l4 5l8 -10`, fill: "none", stroke: "#fff", "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round"}, w); T(w, x + 34, 559, t, {size: 22, weight: 600}); });
+  R(T(svg, 64, 640, "A hypothesis to prove with a pilot, not a proven advantage. Competitor details from company and press releases.", {size: 14, cls: "tm"}), 2100);
+});
+
+/* P20 - what the money buys (milestones) */
+newSlide("Roadmap", (svg) => {
+  title(svg, "What ₹1 crore buys", "Four deliverables");
+  const y = 330, xs = [170, 470, 770, 1070];
+  const p = S("path", {d: `M${xs[0]} ${y}H${xs[3]}`, fill: "none", stroke: "var(--blue)", "stroke-width": 6, "stroke-linecap": "round", pathLength: 1, class: "draw"}, svg); p.style.setProperty("--d", "300ms");
+  const M = [["Privacy layer built", "sealed sums + noise", "var(--aqua)", "seal"], ["Real-data pilot", "1–2 banks, anonymised", "var(--blue)", "pilot"], ["Independent review", "security + privacy", "var(--orange)", "shield"], ["Pilot readout", "lift on real data", "var(--red)", "flag"]];
+  M.forEach(([t, sub, c, k], i) => {
+    const x = xs[i], g = G(svg, "rs", 600 + i * 450); S("circle", {cx: x, cy: y, r: 62, fill: "var(--card)", stroke: c, "stroke-width": 5}, g);
+    if (k === "pilot") { cylinder(g, x - 10, y, 34, 44, c, null); S("path", {d: `M${x + 18} ${y - 14}l12 12l-12 12`, fill: "none", stroke: c, "stroke-width": 5, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); }
+    if (k === "seal") { S("rect", {x: x - 24, y: y - 14, width: 48, height: 36, rx: 6, fill: c}, g); S("path", {d: `M${x - 14} ${y - 14}V${y - 26}a14 14 0 0 1 28 0V${y - 14}`, fill: "none", stroke: c, "stroke-width": 6}, g); }
+    if (k === "shield") { S("path", {d: `M${x} ${y - 30}L${x + 26} ${y - 18}V${y + 4}Q${x + 26} ${y + 26} ${x} ${y + 36}Q${x - 26} ${y + 26} ${x - 26} ${y + 4}V${y - 18}Z`, fill: "none", stroke: c, "stroke-width": 6, "stroke-linejoin": "round"}, g); S("path", {d: `M${x - 10} ${y + 2}l8 8l15 -18`, fill: "none", stroke: c, "stroke-width": 6, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); }
+    if (k === "flag") { S("line", {x1: x - 14, y1: y - 30, x2: x - 14, y2: y + 30, stroke: c, "stroke-width": 6, "stroke-linecap": "round"}, g); S("path", {d: `M${x - 14} ${y - 28}H${x + 28}L${x + 16} ${y - 12}L${x + 28} ${y + 4}H${x - 14}Z`, fill: c}, g); }
+    R(T(svg, x, y + 112, t, {size: 24, weight: 800, anchor: "middle"}), 900 + i * 450); R(T(svg, x, y + 144, sub, {size: 18, anchor: "middle", cls: "t2"}), 1000 + i * 450); R(T(svg, x, y - 90, String(i + 1), {size: 30, weight: 800, anchor: "middle", cls: "tm"}), 700 + i * 450);
+  });
+  const g = G(svg, "r", 2800); S("rect", {x: 340, y: 540, width: 600, height: 58, rx: 29, fill: "var(--card)", stroke: "var(--amber)", "stroke-width": 2.5}, g); T(g, 640, 577, "Target: about 12 months. A plan, not a promise.", {size: 20, weight: 700, anchor: "middle"});
+});
+
+/* P21 - use of funds */
+newSlide("Use of funds", (svg) => {
+  title(svg, "Use of funds", "Where the ₹1 crore goes");
+  const seg = [[45, "Engineering + privacy layer", "var(--blue)", "₹45 lakh"], [25, "Pilot support", "var(--aqua)", "₹25 lakh"], [15, "Security + legal review", "var(--orange)", "₹15 lakh"], [15, "Buffer", "var(--muted)", "₹15 lakh"]];
+  const cx = 360, cy = 400, r = 150, pt = (a) => [cx + r * Math.cos(a), cy + r * Math.sin(a)]; let a0 = -Math.PI / 2;
+  seg.forEach(([pc, , c], i) => {
+    const a1 = a0 + pc / 100 * 2 * Math.PI, gap = 0.012, [x1, y1] = pt(a0 + gap), [x2, y2] = pt(a1 - gap), big = (a1 - a0) > Math.PI ? 1 : 0;
+    const arc = S("path", {d: `M${x1} ${y1}A${r} ${r} 0 ${big} 1 ${x2} ${y2}`, fill: "none", stroke: c, "stroke-width": 56, pathLength: 1, class: "draw"}, svg); arc.style.setProperty("--d", 300 + i * 500 + "ms"); tip(arc, `<b>${seg[i][1]}</b>: ${pc}% (${seg[i][3]})`); a0 = a1;
+  });
+  const m = G(svg, "rs", 1500); T(m, cx, cy + 14, "₹1 Cr", {size: 54, weight: 800, anchor: "middle"}); T(m, cx, cy + 46, "pre-seed", {size: 18, anchor: "middle", cls: "t2"});
+  seg.forEach(([pc, lab, c, amt], i) => {
+    const y = 230 + i * 90, g = G(svg, "r", 800 + i * 300); S("rect", {x: 660, y, width: 556, height: 72, rx: 16, fill: "var(--card)", stroke: "var(--line)"}, g); S("rect", {x: 676, y: y + 22, width: 28, height: 28, rx: 6, fill: c}, g);
+    T(g, 722, y + 44, lab, {size: 22, weight: 700}); T(g, 1196, y + 32, pc + "%", {size: 26, weight: 800, anchor: "end"}); T(g, 1196, y + 56, amt, {size: 15, anchor: "end", cls: "tm"});
+  });
+});
+
+/* P22 - team */
+newSlide("Team", (svg) => {
+  title(svg, "Team", "Built end to end by one founder");
+  const f = G(svg, "rs", 300); S("circle", {cx: 300, cy: 330, r: 110, fill: "var(--card)", stroke: "var(--blue)", "stroke-width": 5}, f); S("circle", {cx: 300, cy: 300, r: 36, fill: "var(--blue)"}, f); S("path", {d: "M226 400Q226 346 300 346Q374 346 374 400", fill: "var(--blue)"}, f);
+  R(T(svg, 300, 490, FOUNDER.name || "Founder", {size: 32, weight: 800, anchor: "middle"}), 700); R(T(svg, 300, 524, FOUNDER.line, {size: 20, anchor: "middle", cls: "t2"}), 800);
+  R(T(svg, 640, 220, "What exists today", {size: 22, weight: 700, cls: "t2"}), 900);
+  [["Synthetic UPI data generator", "var(--blue)"], ["Central benchmark", "var(--blue)"], ["Federated trainer: histogram sharing", "var(--aqua)"], ["Results + investor decks", "var(--aqua)"]].forEach(([t, c], i) => { const g = G(svg, "r", 1100 + i * 250); S("rect", {x: 640, y: 244 + i * 62, width: 540, height: 50, rx: 25, fill: "var(--card)", stroke: c, "stroke-width": 2.5}, g); S("circle", {cx: 670, cy: 269 + i * 62, r: 11, fill: "var(--good)"}, g); S("path", {d: `M${664} ${269 + i * 62}l4 5l8 -10`, fill: "none", stroke: "#fff", "stroke-width": 3, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); T(g, 696, 276 + i * 62, t, {size: 20, weight: 600}); });
+  R(T(svg, 640, 540, "Looking for", {size: 22, weight: 700, cls: "t2"}), 2300);
+  ["Banking adviser", "Compliance adviser", "Privacy adviser"].forEach((t, i) => { const g = G(svg, "r", 2400 + i * 200); S("rect", {x: 640 + i * 188, y: 560, width: 176, height: 46, rx: 23, fill: "none", stroke: "var(--amber)", "stroke-width": 2.5, "stroke-dasharray": "6 5"}, g); T(g, 640 + i * 188 + 88, 590, t, {size: 16, weight: 600, anchor: "middle"}); });
+});
+
+/* P23 - risks and mitigations */
+newSlide("Risks", (svg) => {
+  title(svg, "Risks", "What could go wrong, and what we do");
+  [["Histograms could leak", "Sealed sums, minimum bucket size, noise (planned)"], ["Synthetic data is not real data", "Real-data pilot is milestone one"], ["Banks buy slowly", "Start with one bank and a research-style pilot"], ["Regulator or in-house tools overlap", "Focus on cross-bank rings; work alongside, not against"]].forEach(([r, m], i) => {
+    const y = 170 + i * 118, g = G(svg, "r", 200 + i * 300);
+    S("rect", {x: 64, y, width: 470, height: 90, rx: 18, fill: "var(--card)", stroke: "var(--red)", "stroke-width": 2.5}, g); S("path", {d: `M96 ${y + 58}L116 ${y + 24}L136 ${y + 58}Z`, fill: "var(--red)"}, g); S("rect", {x: 114, y: y + 36, width: 4, height: 12, rx: 2, fill: "var(--card)"}, g); S("circle", {cx: 116, cy: y + 53, r: 2.2, fill: "var(--card)"}, g);
+    T(g, 158, y + 54, r, {size: 21, weight: 700}); arrow(g, 548, y + 45, 612, y + 45, {w: 4});
+    S("rect", {x: 626, y, width: 590, height: 90, rx: 18, fill: "var(--card)", stroke: "var(--aqua)", "stroke-width": 2.5}, g); S("circle", {cx: 664, cy: y + 45, r: 15, fill: "var(--good)"}, g); S("path", {d: `M${657} ${y + 45}l5 6l10 -12`, fill: "none", stroke: "#fff", "stroke-width": 3.5, "stroke-linecap": "round", "stroke-linejoin": "round"}, g);
+    T(g, 696, y + 54, m, {size: 19, weight: 600});
+  });
+});
+
+/* P24 - the ask */
+newSlide("The ask", (svg) => {
+  title(svg, "The ask", "Help us prove it on real data");
+  const C = [["₹1 crore", "pre-seed capital", "coin"], ["Pilot bank intros", "one or two banks to start", "bank"], ["Advisers", "banking · compliance · privacy", "shield"]];
+  C.forEach(([a, b, k], i) => {
+    const x = 64 + i * 390, g = G(svg, "r", 200 + i * 300); S("rect", {x, y: 170, width: 368, height: 330, rx: 22, fill: "var(--card)", stroke: BC[i], "stroke-width": 3.5}, g); const cx = x + 184, cy = 270;
+    if (k === "coin") { S("circle", {cx, cy, r: 50, fill: "none", stroke: BC[0], "stroke-width": 7}, g); T(g, cx, cy + 20, "₹", {size: 60, weight: 800, anchor: "middle"}); }
+    if (k === "bank") { cylinder(g, cx - 40, cy, 56, 72, BC[1], null); cylinder(g, cx + 40, cy + 8, 56, 72, BC[1], null); }
+    if (k === "shield") { S("path", {d: `M${cx} ${cy - 48}L${cx + 42} ${cy - 28}V${cy + 6}Q${cx + 42} ${cy + 40} ${cx} ${cy + 56}Q${cx - 42} ${cy + 40} ${cx - 42} ${cy + 6}V${cy - 28}Z`, fill: "none", stroke: BC[2], "stroke-width": 7, "stroke-linejoin": "round"}, g); S("path", {d: `M${cx - 16} ${cy + 4}l12 12l22 -26`, fill: "none", stroke: BC[2], "stroke-width": 7, "stroke-linecap": "round", "stroke-linejoin": "round"}, g); }
+    T(g, cx, 398, a, {size: i === 0 ? 44 : 32, weight: 800, anchor: "middle"}); T(g, cx, 440, b, {size: 20, anchor: "middle", cls: "t2"});
+  });
+  const o = G(svg, "r", 1400); S("rect", {x: 160, y: 540, width: 960, height: 70, rx: 35, fill: "var(--card)", stroke: "var(--aqua)", "stroke-width": 3}, o); T(o, 640, 584, "In return: a real-data pilot readout in about 12 months (target)", {size: 24, weight: 800, anchor: "middle"});
+  R(T(svg, 640, 660, "Catch the ring. Keep the data.", {size: 34, weight: 800, anchor: "middle", fill: "var(--blue)"}), 1900);
+});
+
+/* P25 - close */
+newSlide("Close", (svg) => {
+  const rnd = rng(11), pos = [[300, 520, 130], [640, 560, 110], [980, 520, 120]];
+  pos.forEach(([x, y, r], i) => { RS(S("circle", {cx: x, cy: y, r, fill: "var(--card)", stroke: BC[i], "stroke-width": 3}, svg), 200 + i * 150); for (let k = 0; k < 14; k++) { const a = rnd() * 6.283, d = Math.sqrt(rnd()) * (r - 12); S("circle", {cx: x + Math.cos(a) * d, cy: y + Math.sin(a) * d, r: 3, fill: "var(--muted)", opacity: .6}, svg); } lock(svg, x, y - r - 14, 1.2, BC[i]); });
+  const ring = [[300, 470], [640, 520], [980, 470]], rg = G(svg, "r", 900); S("path", {d: "M" + ring.map((p) => p.join(" ")).join("L") + "Z", fill: "none", stroke: "var(--red)", "stroke-width": 3, "stroke-dasharray": "8 8"}, rg); ring.forEach(([x, y]) => S("circle", {cx: x, cy: y, r: 9, fill: "var(--red)", class: "pulse"}, rg));
+  R(T(svg, 640, 150, "Catch the ring.", {size: 76, weight: 800, anchor: "middle"}), 300); R(T(svg, 640, 236, "Keep the data.", {size: 76, weight: 800, anchor: "middle", fill: "var(--blue)"}), 600);
+  R(T(svg, 640, 300, "FedAML  ·  " + (FOUNDER.name ? FOUNDER.name + "  ·  " : "") + FOUNDER.line, {size: 22, anchor: "middle", cls: "t2"}), 900);
+  if (FOUNDER.contact) R(T(svg, 640, 332, FOUNDER.contact, {size: 20, anchor: "middle", weight: 600}), 1000);
+});
+
+/* ---------- presenter notes: press N to show or hide ---------- */
+const NOTES = D.notes || {};
+const np = document.createElement("div"); np.id = "notes";
+np.style.cssText = "position:fixed;left:0;right:0;bottom:0;max-height:36vh;overflow:auto;background:var(--card);color:var(--text);border-top:2px solid var(--blue);padding:14px 24px 46px;font-size:16px;line-height:1.55;display:none;z-index:8";
+document.body.appendChild(np);
+let notesOn = false;
+const updNotes = () => { const s = slides[cur]; np.innerHTML = s ? "<b>" + s.name + "</b><br>" + (NOTES[s.name] || "<i>No notes for this slide.</i>") : ""; };
+addEventListener("keydown", (e) => { if (!D.notes) return; if (e.key === "n" || e.key === "N") { notesOn = !notesOn; np.style.display = notesOn ? "block" : "none"; updNotes(); } });
+const _go = window.go; window.go = function (i) { _go(i); updNotes(); };
+})();
+
+
+/* ---------- chrome wiring ---------- */
+slides.forEach((s, i) => { const b = document.createElement("button"); b.title = s.name; b.setAttribute("aria-label", s.name); b.onclick = () => go(i); $("dots").appendChild(b); });
+addEventListener("resize", fit); fit();
+addEventListener("keydown", (e) => {
+  if (["ArrowRight", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); go(cur + 1); }
+  if (["ArrowLeft", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); go(cur - 1); }
+  if (e.key === "Home") go(0); if (e.key === "End") go(slides.length - 1);
+  if (e.key === "f") document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+});
+$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+let sx = null; addEventListener("touchstart", (e) => { sx = e.touches[0].clientX; }); addEventListener("touchend", (e) => { if (sx == null) return; const dx = e.changedTouches[0].clientX - sx; if (Math.abs(dx) > 50) go(cur + (dx < 0 ? 1 : -1)); sx = null; });
+$("stage").addEventListener("click", (e) => { if (!e.target.closest(".pill") && !e.target.closest("[data-tip]") && e.clientX > innerWidth * .66) go(cur + 1); });
+requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(() => go(Math.max(0, (parseInt(location.hash.slice(1)) || 1) - 1)), 50)));
+</script>
+</body>
+</html>
